@@ -27,12 +27,27 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, UploadFile, status
 
 from server.dependencies import get_csv_uploader
-from server.schemas.files import CSVUploadResponse
+from server.schemas.files import CSVUploadResponse, DataFileListResponse
 from server.services.csv_uploader import CSVUploader
 
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 """Router exposing file-upload endpoints."""
+
+
+@router.get("/list", response_model=DataFileListResponse)
+def list_data_files(
+    uploader: CSVUploader = Depends(get_csv_uploader),
+) -> DataFileListResponse:
+    """Return every uploaded and preloaded data file.
+
+    Args:
+        uploader (CSVUploader): Injected upload service.
+
+    Returns:
+        DataFileListResponse: Combined list of all available data files.
+    """
+    return uploader.list_files()
 
 
 @router.post(

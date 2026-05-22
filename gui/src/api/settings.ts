@@ -1,8 +1,8 @@
 /**
  * API client for the ``/api/settings/*`` endpoints.
  *
- * Covers provider status listing, API-key storage (session-only),
- * and key validation.
+ * Covers cloud provider key management and local endpoint
+ * configuration (Ollama, vLLM, llama.cpp).
  */
 
 import { z } from "zod";
@@ -15,6 +15,14 @@ const providerNameSchema = z.union([
 ]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
 
+const localProviderNameSchema = z.union([
+  z.literal("local_vllm"),
+  z.literal("ollama"),
+  z.literal("vllm"),
+  z.literal("llama_cpp"),
+]);
+export type LocalProviderName = z.infer<typeof localProviderNameSchema>;
+
 const providerStatusItemSchema = z.object({
   provider: providerNameSchema,
   configured: z.boolean(),
@@ -22,8 +30,18 @@ const providerStatusItemSchema = z.object({
 });
 export type ProviderStatusItem = z.infer<typeof providerStatusItemSchema>;
 
+const localEndpointStatusItemSchema = z.object({
+  provider: localProviderNameSchema,
+  api_base: z.string(),
+  configured: z.boolean(),
+});
+export type LocalEndpointStatusItem = z.infer<
+  typeof localEndpointStatusItemSchema
+>;
+
 const providerStatusResponseSchema = z.object({
   providers: z.array(providerStatusItemSchema),
+  local_endpoints: z.array(localEndpointStatusItemSchema).default([]),
 });
 export type ProviderStatusResponse = z.infer<
   typeof providerStatusResponseSchema
@@ -36,7 +54,16 @@ const apiKeyTestResponseSchema = z.object({
 });
 export type ApiKeyTestResponse = z.infer<typeof apiKeyTestResponseSchema>;
 
-/** Fetch current provider status (which keys are configured). */
+const localEndpointTestResponseSchema = z.object({
+  reachable: z.boolean(),
+  models: z.array(z.string()).default([]),
+  message: z.string(),
+});
+export type LocalEndpointTestResponse = z.infer<
+  typeof localEndpointTestResponseSchema
+>;
+
+/** Fetch cloud and local provider status. */
 export function getProviderStatus(): Promise<ProviderStatusResponse> {
   return requestJson({
     method: "GET",
@@ -45,7 +72,7 @@ export function getProviderStatus(): Promise<ProviderStatusResponse> {
   });
 }
 
-/** Store an API key in the server's session environment. */
+/** Store a cloud API key in the server's session environment. */
 export function setApiKey(
   provider: ProviderName,
   api_key: string,
@@ -58,7 +85,7 @@ export function setApiKey(
   });
 }
 
-/** Validate an API key against the provider without storing it. */
+/** Validate a cloud API key against the provider. */
 export function testApiKey(
   provider: ProviderName,
   api_key: string,
@@ -68,5 +95,30 @@ export function testApiKey(
     path: "/api/settings/api-key/test",
     responseSchema: apiKeyTestResponseSchema,
     jsonBody: { provider, api_key },
+  });
+}
+
+/** Store a local endpoint URL for the session. */
+export function setLocalEndpoint(
+  provider: LocalProviderName,
+  api_base: string,
+): Promise<ProviderStatusResponse> {
+  return requestJson({
+    method: "POST",
+    path: "/api/settings/local-endpoint",
+    responseSchema: providerStatusResponseSchema,
+    jsonBody: { provider, api_base },
+  });
+}
+
+/** Test a local endpoint by hitting its /models path. */
+export function testLocalEndpoint(
+  api_base: string,
+): Promise<LocalEndpointTestResponse> {
+  return requestJson({
+    method: "POST",
+    path: "/api/settings/local-endpoint/test",
+    responseSchema: localEndpointTestResponseSchema,
+    jsonBody: { api_base },
   });
 }

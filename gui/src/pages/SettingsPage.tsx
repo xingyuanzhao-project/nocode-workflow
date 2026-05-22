@@ -1,14 +1,9 @@
 /**
- * Settings page for runtime API-key management.
+ * API Keys page — cloud key management and local endpoint config.
  *
- * Lets the user set ``OPENROUTER_API_KEY`` and ``OPENAI_API_KEY`` in
- * the server's process environment for the current session. Keys are
- * NOT persisted to disk — a server restart clears them.
- *
- * Each provider row shows whether a key is currently configured, a
- * masked input for entering a new key, a "Test" button that validates
- * the key against the provider's ``/models`` endpoint, and a "Save"
- * button that stores the key for the session.
+ * Cloud providers (OpenRouter, OpenAI): set API keys via masked input.
+ * Local providers (Ollama, vLLM, llama.cpp): set base URL and test
+ * connectivity by hitting the ``/models`` endpoint.
  */
 
 import { useCallback, useState } from "react";
@@ -17,16 +12,28 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getProviderStatus,
   setApiKey,
+  setLocalEndpoint,
   testApiKey,
+  testLocalEndpoint,
   type ApiKeyTestResponse,
+  type LocalEndpointStatusItem,
+  type LocalEndpointTestResponse,
+  type LocalProviderName,
   type ProviderName,
   type ProviderStatusItem,
 } from "@/api/settings";
 import { Button } from "@/components/ui/button";
 
-const PROVIDER_LABELS: Record<ProviderName, string> = {
+const CLOUD_PROVIDER_LABELS: Record<ProviderName, string> = {
   openrouter: "OpenRouter",
   openai: "OpenAI",
+};
+
+const LOCAL_PROVIDER_LABELS: Record<LocalProviderName, string> = {
+  local_vllm: "Local vLLM",
+  ollama: "Ollama",
+  vllm: "vLLM",
+  llama_cpp: "llama.cpp",
 };
 
 export default function SettingsPage(): JSX.Element {
@@ -37,14 +44,17 @@ export default function SettingsPage(): JSX.Element {
     queryFn: getProviderStatus,
   });
 
+  const invalidate = () =>
+    query_client.invalidateQueries({ queryKey: ["provider-status"] });
+
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col gap-6 overflow-auto p-6">
       <div>
-        <h1 className="text-xl font-semibold">Settings</h1>
+        <h1 className="text-xl font-semibold">API Keys</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage API keys for LLM providers. Keys are stored in the
-          server&apos;s memory for this session only and are not written
-          to disk.
+          Manage API keys and endpoints for LLM providers. Cloud keys are
+          stored in the server&apos;s memory for this session only. Local
+          endpoints connect directly without authentication.
         </p>
       </div>
 
@@ -57,33 +67,57 @@ export default function SettingsPage(): JSX.Element {
           Failed to load provider status.
         </div>
       ) : (
-        <div className="flex flex-col gap-4">
-          {status_query.data?.providers.map((provider_item) => (
-            <ProviderKeyRow
-              key={provider_item.provider}
-              provider_item={provider_item}
-              on_saved={() =>
-                query_client.invalidateQueries({
-                  queryKey: ["provider-status"],
-                })
-              }
-            />
-          ))}
-        </div>
+        <>
+          <section>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Cloud providers
+            </h2>
+            <div className="flex flex-col gap-4">
+              {status_query.data?.providers.map((provider_item) => (
+                <CloudProviderRow
+                  key={provider_item.provider}
+                  provider_item={provider_item}
+                  on_saved={invalidate}
+                />
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Local endpoints
+            </h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Connect to Ollama, vLLM, or llama.cpp servers running on
+              your machine. All use the OpenAI-compatible API format.
+            </p>
+            <div className="flex flex-col gap-4">
+              {(status_query.data?.local_endpoints ?? []).map(
+                (endpoint_item) => (
+                  <LocalEndpointRow
+                    key={endpoint_item.provider}
+                    endpoint_item={endpoint_item}
+                    on_saved={invalidate}
+                  />
+                ),
+              )}
+            </div>
+          </section>
+        </>
       )}
     </div>
   );
 }
 
-interface ProviderKeyRowProps {
+interface CloudProviderRowProps {
   provider_item: ProviderStatusItem;
   on_saved: () => void;
 }
 
-function ProviderKeyRow({
+function CloudProviderRow({
   provider_item,
   on_saved,
-}: ProviderKeyRowProps): JSX.Element {
+}: CloudProviderRowProps): JSX.Element {
   const [key_input, set_key_input] = useState("");
   const [test_result, set_test_result] =
     useState<ApiKeyTestResponse | null>(null);
@@ -103,9 +137,7 @@ function ProviderKeyRow({
   });
 
   const handle_save = useCallback(() => {
-    if (key_input.trim()) {
-      save_mutation.mutate();
-    }
+    if (key_input.trim()) save_mutation.mutate();
   }, [key_input, save_mutation]);
 
   const handle_test = useCallback(() => {
@@ -115,21 +147,13 @@ function ProviderKeyRow({
     }
   }, [key_input, test_mutation]);
 
-  const label = PROVIDER_LABELS[provider_item.provider];
+  const label = CLOUD_PROVIDER_LABELS[provider_item.provider];
 
   return (
     <div className="rounded-lg border p-4">
       <div className="flex items-center gap-3">
-        <h2 className="text-sm font-semibold">{label}</h2>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-            provider_item.configured
-              ? "bg-green-100 text-green-700"
-              : "bg-muted text-muted-foreground"
-          }`}
-        >
-          {provider_item.configured ? "Configured" : "Not configured"}
-        </span>
+        <h3 className="text-sm font-semibold">{label}</h3>
+        <StatusBadge configured={provider_item.configured} />
         <span className="ml-auto text-xs text-muted-foreground">
           env: {provider_item.env_var}
         </span>
@@ -146,9 +170,7 @@ function ProviderKeyRow({
             set_test_result(null);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              handle_save();
-            }
+            if (event.key === "Enter") handle_save();
           }}
         />
         <Button
@@ -157,7 +179,7 @@ function ProviderKeyRow({
           onClick={handle_test}
           disabled={!key_input.trim() || test_mutation.isPending}
         >
-          {test_mutation.isPending ? "Testing..." : "Test Connection"}
+          {test_mutation.isPending ? "Testing..." : "Test"}
         </Button>
         <Button
           size="sm"
@@ -186,5 +208,121 @@ function ProviderKeyRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+interface LocalEndpointRowProps {
+  endpoint_item: LocalEndpointStatusItem;
+  on_saved: () => void;
+}
+
+function LocalEndpointRow({
+  endpoint_item,
+  on_saved,
+}: LocalEndpointRowProps): JSX.Element {
+  const [url_input, set_url_input] = useState(endpoint_item.api_base);
+  const [test_result, set_test_result] =
+    useState<LocalEndpointTestResponse | null>(null);
+
+  const save_mutation = useMutation({
+    mutationFn: () => setLocalEndpoint(endpoint_item.provider, url_input),
+    onSuccess: () => {
+      set_test_result(null);
+      on_saved();
+    },
+  });
+
+  const test_mutation = useMutation({
+    mutationFn: () => testLocalEndpoint(url_input),
+    onSuccess: (response) => set_test_result(response),
+  });
+
+  const handle_save = useCallback(() => {
+    if (url_input.trim()) save_mutation.mutate();
+  }, [url_input, save_mutation]);
+
+  const handle_test = useCallback(() => {
+    if (url_input.trim()) {
+      set_test_result(null);
+      test_mutation.mutate();
+    }
+  }, [url_input, test_mutation]);
+
+  const label = LOCAL_PROVIDER_LABELS[endpoint_item.provider];
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex items-center gap-3">
+        <h3 className="text-sm font-semibold">{label}</h3>
+        <StatusBadge configured={endpoint_item.configured} />
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground"
+          placeholder="http://localhost:8000/v1"
+          value={url_input}
+          onChange={(event) => {
+            set_url_input(event.target.value);
+            set_test_result(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") handle_save();
+          }}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handle_test}
+          disabled={!url_input.trim() || test_mutation.isPending}
+        >
+          {test_mutation.isPending ? "Testing..." : "Test"}
+        </Button>
+        <Button
+          size="sm"
+          onClick={handle_save}
+          disabled={!url_input.trim() || save_mutation.isPending}
+        >
+          {save_mutation.isPending ? "Saving..." : "Save"}
+        </Button>
+      </div>
+
+      {test_result ? (
+        <div
+          className={`mt-2 rounded-md px-3 py-1.5 text-xs ${
+            test_result.reachable
+              ? "bg-green-50 text-green-700"
+              : "bg-destructive/10 text-destructive"
+          }`}
+        >
+          {test_result.message}
+        </div>
+      ) : null}
+
+      {save_mutation.error ? (
+        <div className="mt-2 rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+          Failed to save endpoint. Check the server connection.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StatusBadge({
+  configured,
+}: {
+  configured: boolean;
+}): JSX.Element {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+        configured
+          ? "bg-green-100 text-green-700"
+          : "bg-muted text-muted-foreground"
+      }`}
+    >
+      {configured ? "Configured" : "Default"}
+    </span>
   );
 }

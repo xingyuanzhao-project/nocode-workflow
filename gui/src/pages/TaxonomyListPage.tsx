@@ -41,7 +41,7 @@ export default function TaxonomyListPage(): JSX.Element {
     onSuccess: (response) => {
       query_client.invalidateQueries({ queryKey: TAXONOMY_LIST_QUERY_KEY });
       set_new_taxonomy_name("");
-      navigate(`/taxonomies/${encodeURIComponent(response.id)}`);
+            navigate(`/codebook/${encodeURIComponent(response.id)}`);
     },
   });
 
@@ -55,11 +55,11 @@ export default function TaxonomyListPage(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b px-6 py-3">
-        <h1 className="text-lg font-semibold">Taxonomies</h1>
+        <h1 className="text-lg font-semibold">Codebook</h1>
         <div className="flex items-center gap-2">
           <input
             className="rounded-md border bg-background px-2 py-1 text-sm"
-            placeholder="New taxonomy name"
+            placeholder="New codebook name"
             value={new_taxonomy_name}
             onChange={(event) => set_new_taxonomy_name(event.target.value)}
           />
@@ -83,7 +83,7 @@ export default function TaxonomyListPage(): JSX.Element {
           </div>
         ) : (list_query.data ?? []).length === 0 ? (
           <div className="text-sm text-muted-foreground">
-            No taxonomies saved yet.
+            No codebooks saved yet.
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -111,7 +111,7 @@ export default function TaxonomyListPage(): JSX.Element {
                           size="sm"
                           onClick={() =>
                             navigate(
-                              `/taxonomies/${encodeURIComponent(
+                              `/codebook/${encodeURIComponent(
                                 taxonomy_item.id,
                               )}`,
                             )
@@ -125,7 +125,7 @@ export default function TaxonomyListPage(): JSX.Element {
                           onClick={() => {
                             if (
                               window.confirm(
-                                `Delete taxonomy "${taxonomy_item.name}"? This cannot be undone.`,
+                                `Delete codebook "${taxonomy_item.name}"? This cannot be undone.`,
                               )
                             ) {
                               delete_mutation.mutate(taxonomy_item.id);

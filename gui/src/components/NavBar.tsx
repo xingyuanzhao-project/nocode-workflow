@@ -18,8 +18,9 @@ interface NavEntry {
 
 const PRIMARY_NAV_ENTRIES: NavEntry[] = [
   { to: "/flows", label: "Flows" },
-  { to: "/taxonomies", label: "Taxonomies" },
-  { to: "/settings", label: "Settings" },
+  { to: "/data", label: "Data" },
+  { to: "/codebook", label: "Codebook" },
+  { to: "/settings", label: "API Keys" },
 ];
 
 /**

@@ -6,12 +6,25 @@
  * automatically when the body is a :class:`FormData`.
  */
 
-import { ApiError, buildApiUrl } from "./client";
+import { ApiError, buildApiUrl, requestJson } from "./client";
 import { errorResponseSchema } from "@/schemas/errors";
 import {
   csvUploadResponseSchema,
+  dataFileListResponseSchema,
   type CSVUploadResponse,
+  type DataFileListResponse,
 } from "@/schemas/files";
+
+/**
+ * List all uploaded and preloaded data files from the backend.
+ */
+export function listDataFiles(): Promise<DataFileListResponse> {
+  return requestJson({
+    method: "GET",
+    path: "/api/files/list",
+    responseSchema: dataFileListResponseSchema,
+  });
+}
 
 /**
  * Upload a data file (CSV, JSON, or JSONL) and receive its inspection summary.

@@ -143,15 +143,29 @@ extension: ``.csv`` → :func:`pandas.read_csv`, ``.json`` →
 :func:`pandas.read_json` (lines)."""
 
 
-PROVIDER_VALUES: frozenset[str] = frozenset({"local_vllm", "openrouter", "openai"})
-"""Registered provider values accepted by :class:`LLMResource`."""
+PROVIDER_VALUES: frozenset[str] = frozenset({
+    "local_vllm", "openrouter", "openai", "ollama", "vllm", "llama_cpp",
+})
+"""Registered provider values accepted by :class:`LLMResource`.
+
+Cloud providers (``openrouter``, ``openai``) require a real API key
+via ``api_key_env``. Local providers (``local_vllm``, ``ollama``,
+``vllm``, ``llama_cpp``) default to ``"dummy"`` when no key is set."""
 
 
 PROVIDER_DEFAULT_API_BASE: Dict[str, str] = {
     "local_vllm": "http://localhost:8000/v1",
+    "ollama": "http://localhost:11434/v1",
+    "vllm": "http://localhost:8000/v1",
+    "llama_cpp": "http://localhost:8080/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "openai": "https://api.openai.com/v1",
 }
+
+LOCAL_PROVIDERS: frozenset[str] = frozenset({
+    "local_vllm", "ollama", "vllm", "llama_cpp",
+})
+"""Providers that run on localhost and don't require a real API key."""
 """Default ``api_base`` per provider. Used by the builder when the YAML
 omits ``api_base`` on a resource."""
 

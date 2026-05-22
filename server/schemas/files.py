@@ -40,6 +40,40 @@ class CSVColumnDescriptor(BaseModel):
     sample_values: List[Any] = Field(default_factory=list)
 
 
+class DataFileListItem(BaseModel):
+    """One entry in the data-file listing.
+
+    Attributes:
+        filename (str): Display name (original upload name or sample
+            file basename).
+        stored_path (str): Project-root-relative POSIX path usable in
+            flow YAML ``input_csv`` / ``input_file``.
+        row_count (int | None): Row count when available, ``None`` when
+            the file has not been parsed yet.
+        source (str): ``"uploaded"`` for user uploads,
+            ``"preloaded"`` for sample data shipped with the repo.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str
+    stored_path: str
+    row_count: int | None = None
+    source: str
+
+
+class DataFileListResponse(BaseModel):
+    """Response of ``GET /api/files/list``.
+
+    Attributes:
+        files (List[DataFileListItem]): Every available data file.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    files: List[DataFileListItem] = Field(default_factory=list)
+
+
 class CSVUploadResponse(BaseModel):
     """Response of ``POST /api/files/upload``.
 

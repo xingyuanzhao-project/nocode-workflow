@@ -1,12 +1,11 @@
 /**
  * Saved-flow list page.
  *
- * Calls ``GET /api/flow/list`` and renders a compact table with
- * open / duplicate / delete actions. The "New flow" button opens
- * :class:`NewFlowDialog`.
+ * Shows every flow saved in the user's workspace (including any that
+ * were seeded at first launch). "New blank flow" opens the editor
+ * with an empty canvas.
  */
 
-import { useState } from "react";
 import {
   useMutation,
   useQuery,
@@ -21,16 +20,20 @@ import {
   listFlows,
 } from "@/api/flows";
 import { Button } from "@/components/ui/button";
-import { NewFlowDialog } from "@/components/NewFlowDialog";
 import type { FlowListItem } from "@/schemas/flow";
+import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
+import { useFlowSettingsStore } from "@/stores/flow_settings_store";
+import { useGraphStore } from "@/stores/graph_store";
 
 const FLOW_LIST_QUERY_KEY = ["flow-list"] as const;
 
 export default function MyFlowsPage(): JSX.Element {
   const navigate = useNavigate();
   const query_client = useQueryClient();
-  const [is_new_flow_dialog_open, set_is_new_flow_dialog_open] =
-    useState(false);
+
+  const set_graph = useGraphStore((state) => state.set_graph);
+  const set_metadata = useFlowMetadataStore((state) => state.set_metadata);
+  const reset_settings = useFlowSettingsStore((state) => state.reset_settings);
 
   const flow_list_query = useQuery({
     queryKey: FLOW_LIST_QUERY_KEY,
@@ -58,12 +61,24 @@ export default function MyFlowsPage(): JSX.Element {
     },
   });
 
+  const handle_new_blank_flow = () => {
+    set_graph([], []);
+    set_metadata({
+      flow_id: null,
+      name: "Untitled flow",
+      description: "",
+      is_dirty: false,
+    });
+    reset_settings();
+    navigate("/flows/new");
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b px-6 py-3">
         <h1 className="text-lg font-semibold">My flows</h1>
-        <Button onClick={() => set_is_new_flow_dialog_open(true)}>
-          <Plus className="mr-1 h-4 w-4" /> New flow
+        <Button onClick={handle_new_blank_flow}>
+          <Plus className="mr-1 h-4 w-4" /> New blank flow
         </Button>
       </header>
 
@@ -76,7 +91,7 @@ export default function MyFlowsPage(): JSX.Element {
           </div>
         ) : (flow_list_query.data ?? []).length === 0 ? (
           <div className="text-sm text-muted-foreground">
-            No saved flows yet. Click "New flow" to create one from a template.
+            No saved flows yet. Click &quot;New blank flow&quot; to create one.
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -146,11 +161,6 @@ export default function MyFlowsPage(): JSX.Element {
           </table>
         )}
       </div>
-
-      <NewFlowDialog
-        open={is_new_flow_dialog_open}
-        on_open_change={set_is_new_flow_dialog_open}
-      />
     </div>
   );
 }

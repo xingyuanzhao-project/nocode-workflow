@@ -43,10 +43,14 @@ from typing import List
 
 import pandas as pd
 
-from server.schemas.files import CSVColumnDescriptor, CSVUploadResponse
+from server.schemas.files import (
+    CSVColumnDescriptor,
+    CSVUploadResponse,
+    DataFileListItem,
+    DataFileListResponse,
+)
 from server.settings import ServerSettings
 from server.storage.paths import ServerPaths
-
 
 SAMPLE_VALUES_PER_COLUMN: int = 5
 """Maximum number of sample values returned per column."""
@@ -183,6 +187,32 @@ class CSVUploader:
             row_count=int(len(dataframe)),
             columns=columns,
         )
+
+    def list_files(self) -> DataFileListResponse:
+        """List every data file in the uploads directory.
+
+        Returns:
+            DataFileListResponse: One entry per file (seeded or
+            user-uploaded; no distinction is made).
+        """
+        items: list[DataFileListItem] = []
+
+        if self.paths.uploads_dir.exists():
+            for file_path in sorted(self.paths.uploads_dir.iterdir()):
+                if file_path.suffix.lower() in SUPPORTED_UPLOAD_EXTENSIONS:
+                    stored_path = (
+                        f"{self.paths.uploads_dir_relative_posix}/{file_path.name}"
+                    )
+                    items.append(
+                        DataFileListItem(
+                            filename=file_path.name,
+                            stored_path=stored_path,
+                            row_count=None,
+                            source="uploaded",
+                        )
+                    )
+
+        return DataFileListResponse(files=items)
 
     @staticmethod
     def _describe_column(

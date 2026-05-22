@@ -94,6 +94,7 @@ from tqdm.asyncio import tqdm as tqdm_async
 from src.flow_loader import (
     FlowSchema,
     LLMResource,
+    LOCAL_PROVIDERS,
     LoggingConfig,
     PROVIDER_DEFAULT_API_BASE,
     StepConfig,
@@ -204,7 +205,7 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
                 "export it before running."
             )
         resolved_api_key = resolved_api_key_opt
-    elif resource.provider == "local_vllm":
+    elif resource.provider in LOCAL_PROVIDERS:
         resolved_api_key = "dummy"
     else:
         raise ValueError(

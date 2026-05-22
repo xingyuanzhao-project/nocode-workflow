@@ -11,6 +11,19 @@ export const csvColumnDescriptorSchema = z.object({
 });
 export type CSVColumnDescriptor = z.infer<typeof csvColumnDescriptorSchema>;
 
+export const dataFileListItemSchema = z.object({
+  filename: z.string(),
+  stored_path: z.string(),
+  row_count: z.number().int().nullable(),
+  source: z.string(),
+});
+export type DataFileListItem = z.infer<typeof dataFileListItemSchema>;
+
+export const dataFileListResponseSchema = z.object({
+  files: z.array(dataFileListItemSchema).default([]),
+});
+export type DataFileListResponse = z.infer<typeof dataFileListResponseSchema>;
+
 export const csvUploadResponseSchema = z.object({
   upload_id: z.string(),
   filename: z.string(),

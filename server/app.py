@@ -6,35 +6,17 @@ singleton once, stashes them on ``app.state``, installs CORS and
 exception handlers, mounts every :mod:`server.routes` router, and
 returns the configured :class:`fastapi.FastAPI` instance.
 
-Contents and relationships
---------------------------
-
-- :func:`create_app` — the factory called by
-  ``uvicorn server.app:create_app --factory``.
-
-How the rest of the system uses this module
--------------------------------------------
-
-- Uvicorn constructs the app with :func:`create_app`.
-- Every HTTP route handler reads its services from ``request.app.state``
-  via the providers in :mod:`server.dependencies`.
-
-Invariants enforced by this module
-----------------------------------
-
-- Every service is constructed exactly once per process.
-- The Celery app shared with :mod:`server.services.run_dispatcher` and
-  :mod:`server.routes.health` comes from :data:`server.celery_app.celery_app`,
-  not from a fresh :class:`celery.Celery` instance.
-- The shared :class:`httpx.AsyncClient` used by
-  :class:`server.services.model_list_proxy.ModelListProxy` is closed
-  exactly once via an ``on_event("shutdown")`` hook so the process
-  does not leak sockets on restart.
-- Logging is configured before any other module logs anything from
-  :func:`create_app`.
+On first run, :func:`_seed_presets` copies shipped template flows and
+the default codebook into the user data directories so they appear as
+regular user-owned items.
 """
 
 from __future__ import annotations
+
+import json
+import logging
+import shutil
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
@@ -74,6 +56,46 @@ from server.settings import get_settings
 from server.storage.paths import ServerPaths
 
 
+_log = logging.getLogger(__name__)
+
+
+def _seed_presets(paths: ServerPaths, templates_dir: Path) -> None:
+    """Copy shipped templates and codebook into user data dirs if absent.
+
+    Runs once at startup so preset content appears as regular user-owned
+    items that can be opened, edited, or deleted.
+
+    Args:
+        paths: On-disk layout (flows_dir, taxonomies_dir, uploads_dir).
+        templates_dir: Directory containing preset template YAMLs.
+    """
+    for yml in sorted(templates_dir.glob("*.yml")):
+        dest = paths.flows_dir / yml.name
+        if not dest.exists():
+            shutil.copy2(yml, dest)
+            _log.info("Seeded preset flow: %s", yml.name)
+
+    preset_codebook = Path(__file__).resolve().parent.parent / "config" / "taxonomy.json"
+    if preset_codebook.is_file():
+        dest = paths.taxonomies_dir / "default-codebook.json"
+        if not dest.exists():
+            with preset_codebook.open("r", encoding="utf-8") as src:
+                body = json.load(src)
+            body["_name"] = "Default codebook"
+            with dest.open("w", encoding="utf-8") as out:
+                json.dump(body, out, indent=2, sort_keys=False)
+            _log.info("Seeded preset codebook: %s", dest.name)
+
+    preloaded_dir = Path(__file__).resolve().parent.parent / "data"
+    if preloaded_dir.is_dir():
+        for data_file in sorted(preloaded_dir.iterdir()):
+            if data_file.is_file() and data_file.suffix in (".csv", ".json", ".jsonl"):
+                dest = paths.uploads_dir / data_file.name
+                if not dest.exists():
+                    shutil.copy2(data_file, dest)
+                    _log.info("Seeded preset data file: %s", data_file.name)
+
+
 def create_app() -> FastAPI:
     """Build and return the configured FastAPI application.
 
@@ -84,6 +106,8 @@ def create_app() -> FastAPI:
     configure_logging(settings.log_level)
 
     paths = ServerPaths.from_settings(settings)
+
+    _seed_presets(paths, DEFAULT_TEMPLATES_DIR)
 
     node_catalog = build_default_node_catalog()
     flow_validator = FlowValidator()

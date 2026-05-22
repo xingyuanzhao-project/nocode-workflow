@@ -22,6 +22,7 @@ import { NavBar } from "@/components/NavBar";
 const MyFlowsPage = lazy(() => import("@/pages/MyFlowsPage"));
 const FlowEditorPage = lazy(() => import("@/pages/FlowEditorPage"));
 const RunPage = lazy(() => import("@/pages/RunPage"));
+const DataPage = lazy(() => import("@/pages/DataPage"));
 const TaxonomyListPage = lazy(() => import("@/pages/TaxonomyListPage"));
 const TaxonomyEditorPage = lazy(() => import("@/pages/TaxonomyEditorPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
@@ -35,7 +36,7 @@ function AppLayout(): JSX.Element {
   return (
     <div className="flex h-screen flex-col">
       <NavBar />
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-auto">
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -59,9 +60,10 @@ const ROUTES: RouteObject[] = [
       { path: "flows/new", element: <FlowEditorPage mode="new" /> },
       { path: "flows/:flow_id/edit", element: <FlowEditorPage mode="edit" /> },
       { path: "runs/:run_id", element: <RunPage /> },
-      { path: "taxonomies", element: <TaxonomyListPage /> },
+      { path: "data", element: <DataPage /> },
+      { path: "codebook", element: <TaxonomyListPage /> },
       {
-        path: "taxonomies/:taxonomy_id",
+        path: "codebook/:taxonomy_id",
         element: <TaxonomyEditorPage />,
       },
       { path: "settings", element: <SettingsPage /> },

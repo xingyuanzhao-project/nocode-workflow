@@ -38,9 +38,12 @@ export interface LLMProviderConfigFormProps {
 
 function readInitialValues(node: GraphNode): ProviderFormValues {
   const data = node.data;
+  const valid_providers = [
+    "openrouter", "openai", "local_vllm", "ollama", "vllm", "llama_cpp",
+  ];
   const provider_value =
     typeof data.provider === "string" &&
-    (data.provider === "openrouter" || data.provider === "openai")
+    valid_providers.includes(data.provider)
       ? (data.provider as ProviderName)
       : "openrouter";
   return {
@@ -107,6 +110,10 @@ export function LLMProviderConfigForm({
         >
           <option value="openrouter">openrouter</option>
           <option value="openai">openai</option>
+          <option value="local_vllm">local_vllm</option>
+          <option value="ollama">ollama</option>
+          <option value="vllm">vllm</option>
+          <option value="llama_cpp">llama_cpp</option>
         </select>
       </label>
 

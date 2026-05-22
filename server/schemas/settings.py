@@ -25,14 +25,22 @@ from pydantic import BaseModel, ConfigDict
 
 
 ProviderName = Literal["openrouter", "openai"]
-"""Providers for which API keys can be configured at runtime."""
+"""Cloud providers for which API keys can be configured at runtime."""
+
+LocalProviderName = Literal["local_vllm", "ollama", "vllm", "llama_cpp"]
+"""Local providers that connect via base URL without real API keys."""
+
+AnyProviderName = Literal[
+    "openrouter", "openai", "local_vllm", "ollama", "vllm", "llama_cpp",
+]
+"""Union of all supported provider identifiers."""
 
 
 class ApiKeySetRequest(BaseModel):
     """Body of ``POST /api/settings/api-key``.
 
     Attributes:
-        provider (ProviderName): Which provider this key belongs to.
+        provider (ProviderName): Which cloud provider this key belongs to.
         api_key (str): The raw API key string.
     """
 
@@ -46,7 +54,7 @@ class ApiKeyTestRequest(BaseModel):
     """Body of ``POST /api/settings/api-key/test``.
 
     Attributes:
-        provider (ProviderName): Which provider to test against.
+        provider (ProviderName): Which cloud provider to test against.
         api_key (str): The raw API key to validate.
     """
 
@@ -72,6 +80,48 @@ class ApiKeyTestResponse(BaseModel):
     message: str
 
 
+class LocalEndpointSetRequest(BaseModel):
+    """Body of ``POST /api/settings/local-endpoint``.
+
+    Attributes:
+        provider (LocalProviderName): Which local provider backend.
+        api_base (str): OpenAI-compatible base URL.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: LocalProviderName
+    api_base: str
+
+
+class LocalEndpointTestRequest(BaseModel):
+    """Body of ``POST /api/settings/local-endpoint/test``.
+
+    Attributes:
+        api_base (str): Base URL to test (hits ``/models``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_base: str
+
+
+class LocalEndpointTestResponse(BaseModel):
+    """Response of ``POST /api/settings/local-endpoint/test``.
+
+    Attributes:
+        reachable (bool): ``True`` if the endpoint responded.
+        models (List[str]): Model ids returned by the endpoint.
+        message (str): Human-readable result summary.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reachable: bool
+    models: List[str] = []
+    message: str
+
+
 class ProviderStatusItem(BaseModel):
     """Status of one provider's API key configuration.
 
@@ -90,14 +140,32 @@ class ProviderStatusItem(BaseModel):
     env_var: str
 
 
+class LocalEndpointStatusItem(BaseModel):
+    """Status of one local endpoint configuration.
+
+    Attributes:
+        provider (LocalProviderName): Local provider identifier.
+        api_base (str): Currently configured base URL.
+        configured (bool): ``True`` when a custom URL has been set.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: LocalProviderName
+    api_base: str
+    configured: bool
+
+
 class ProviderStatusResponse(BaseModel):
     """Response of ``GET /api/settings/providers``.
 
     Attributes:
-        providers (List[ProviderStatusItem]): One entry per supported
-            provider.
+        providers (List[ProviderStatusItem]): Cloud provider status.
+        local_endpoints (List[LocalEndpointStatusItem]): Local endpoint
+            status.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     providers: List[ProviderStatusItem]
+    local_endpoints: List[LocalEndpointStatusItem] = []
