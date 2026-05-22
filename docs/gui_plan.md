@@ -32,11 +32,21 @@ available without interrupting the plan.
 | Server component | `messy_text_server/main.py` is a mirror of the batch scripts (uses `src/messy_text_processor.py`, not `src/processors.py`) |
 | Phase 1 implementation | Config-driven flow builder is live: `src/flow_loader.py` (Pydantic schema + validators), `src/flow_builder.py` (`FlowRunner`, per-step dispatch), `src/node_registry.py` + `config/node_types.yaml` (processor type registry), `src/io_schema.py` (`IOSchema` → `response_format` + prompt `output_format`), `src/prompt_resolver.py` (`prompts_ref` / inline `prompt` / `prompt_overrides` resolution), `scripts/run_custom_flow.py` (entry point with `--resume` flag). Remaining: Phase 2 GUI. |
 
+> **Audit note (2026-05-21):** The status callouts under each numbered
+> section were checked against the code currently in this repo.
+> **Implemented** means the described capability exists now.
+> **Partially implemented** means the core path exists but some planned
+> behavior in that section is still missing or diverges from the plan text.
+
 ---
 
 ## Phase 1: Config-Driven Flow Builder
 
 ### 1.1 Flow Schema Format
+
+> **Status: implemented.** The flow YAML schema is live in
+> `src/flow_loader.py`, exercised by `config/flows/*.yml`, and covered by
+> `tests/src/test_flow_loader.py`.
 
 A single YAML file defines everything needed to run a pipeline.  Example:
 
@@ -185,6 +195,10 @@ that omit `llm:` are wired to the resource with `id: "default"`.
 
 ### 1.2 Builder Module: `src/flow_builder.py`
 
+> **Status: implemented.** The builder and runner are live in
+> `src/flow_builder.py` and exercised by
+> `tests/src/test_flow_builder_dispatch.py`.
+
 Responsibilities:
 
 1. **Parse & validate** the YAML against a Pydantic model (schema validation).
@@ -287,10 +301,15 @@ Estimated size: ~200–300 lines.
 
 ### 1.3 Entry Point: `scripts/run_custom_flow.py`
 
+> **Status: implemented.** The entry script exists in
+> `scripts/run_custom_flow.py`; it keeps the module-level `flow_config`
+> switch and now also supports `--resume`.
+
 The entry point follows the same pattern as existing scripts
 (`run_summary_conversation.py`, `run_processing.py`, etc.): a module-level
 variable holds the YAML path, which can be edited directly in the file
-before running.  No command-line flag parsing.
+before running.  The checked-in script also adds a `--resume` flag without
+changing that module-level flow selection pattern.
 
 ```python
 # scripts/run_custom_flow.py
@@ -324,7 +343,15 @@ point at the desired YAML:
 flow_config = "config/flows/conversation_summary.yml"
 ```
 
+The checked-in script wraps this pattern with `argparse` so `--resume`
+can thread `resume=True` into `build_flow(...)`.
+
 ### 1.4 Migration Path
+
+> **Status: partially implemented.** The unified flow YAMLs and single
+> runner exist under `config/flows/` and `scripts/run_custom_flow.py`, but
+> the legacy-script/backward-compat migration path described below is not
+> preserved in this repo.
 
 The model-specific scripts (`run_summary_conversation_70b.py`,
 `run_summary_conversation_qwen.py`, `run_summary_conversation_mistral.py`,
@@ -346,10 +373,16 @@ pipeline topologies:
 | **Classification only** | `run_classification.py` | Reads existing `summary_all_context` column, runs `classify_summary()` per taxonomy key.  No summarization. | `config/flows/classification_only.yml` |
 | **Evaluation (LLM-as-judge)** | _(no equivalent in legacy scripts)_ | A `single_summary` step with a custom `io_schema` (e.g. `evaluation_score`, `evaluation_rationale`) and an inline `prompt` that casts the LLM as a judge and scores an existing `summary_all_context` column. The legacy benchmarks (SummaC, G-Eval, default classification metrics) are not wired into the builder; users who need those keep running `run_evaluation.py` directly. | `config/flows/evaluation_only.yml` |
 
-The old scripts and settings files remain functional; no breaking changes.
-Switching models is just a field change in the YAML, not a separate flow.
+In this repo, the unified flow YAMLs are the active path.  The legacy
+scripts/settings described above are historical context rather than a
+parallel path still checked in here.  Switching models is just a field
+change in the YAML, not a separate flow.
 
 ### 1.5 Data Ingestion & Column Mapping
+
+> **Status: partially implemented.** Batch-side `column_roles` mapping is
+> live in `src/flow_loader.py` and `src/flow_builder.py`, but the fuller
+> upload/mapper validation workflow described below is only partly present.
 
 #### The problem
 
@@ -478,13 +511,11 @@ Implementation details:
 
 ### 1.6 Unit of Analysis — How the Pipeline Actually Processes Data
 
-> **Status: implemented.** The `unit` field on `StepConfig`
-> (`src/flow_loader.py`) accepts the values described below (`row`,
-> `document`, `entity`), and adjacent-step unit compatibility is
-> enforced by `FlowConfig.validate_adjacent_unit_transitions` against
-> the `VALID_ADJACENT_UNIT_TRANSITIONS` frozenset in the same module.
-> Invalid transitions (e.g. `document` → `row`) are rejected at YAML
-> load time with a message naming the offending step indices.
+> **Status: partially implemented.** Batch-side unit values,
+> adjacent-step validation, and runner dispatch are live in
+> `src/flow_loader.py` and `src/flow_builder.py`, but some of the
+> stricter validation and GUI affordances described below remain
+> incomplete.
 
 This is the core concept the app was built to solve: documents about the
 same entity are scattered across rows, and the pipeline must aggregate them
@@ -803,26 +834,16 @@ steps:
 ```
 
 The presence or absence of `entity_id` in `column_roles` is what
-determines whether the pipeline is flat or grouped.  The builder validates
-that if any step has `unit: document` or `unit: entity`, then `entity_id`
-must be defined in `column_roles`.
+determines whether the pipeline is flat or grouped.  The intended rule is
+that grouped pipelines require `entity_id`, but the current code still
+models `entity_id` as a required `ColumnRoles` field for every flow rather
+than enforcing that rule conditionally.
 
 ### 1.7 Node Type System
 
-> **Status: implemented (processor and minimal data/resource entries).**
-> The registry lives in `config/node_types.yaml` and is loaded through
-> `src/node_registry.py` (`NodeTypeCategory`, `NodeTypeEntry`,
-> `NodeTypeRegistry`, `load_registry`, `get_default_registry`,
-> `get_processor_step_types`, `get_entry`).  `src/flow_loader.py`
-> delegates its `StepConfig.type` validator to
-> `get_processor_step_types()` instead of carrying a hard-coded
-> `STEP_TYPES` frozenset.  Each processor entry also carries a
-> `default_io_schema` that feeds the runtime override chain in
-> `FlowRunner._resolve_processor_config_for_step` (see section 1.8).
-> The full data/resource catalogue described below is still
-> aspirational — only the node types actually referenced by the
-> builder (processors + `csv_input` data node + `llm_provider`
-> resource) are registered today.
+> **Status: partially implemented.** The registry exists in
+> `config/node_types.yaml` and `src/node_registry.py`, but only the node
+> types needed by the current builder and GUI are implemented.
 
 #### The problem: "node" conflates different things
 
@@ -1703,6 +1724,11 @@ flow:
 
 ### 1.9 LLM Configuration, Per-Processor Model Selection, and Free Tier
 
+> **Status: partially implemented.** Named LLM resources, per-step `llm`
+> selection, model listing, and `processing_limit` are live, but secure
+> BYOK storage, free-tier enforcement, and cost-estimate UX from this
+> section are not fully implemented.
+
 #### Per-processor model selection
 
 The current plan has one global `llm_provider` resource node.  But in
@@ -2027,23 +2053,10 @@ resource as the default.
 
 ### 1.10 Error Handling, Checkpointing, and Resume
 
-> **Status: implemented for the batch runner.**
->
-> - Per-call retry with exponential backoff + jitter is handled inside
->   the existing `src/processors.py` classes that the builder
->   instantiates (unchanged from the legacy scripts); `max_retries`
->   flows in through `async.max_retries` in the flow YAML.
-> - Entity-level checkpointing and resume are owned by
->   `FlowRunner` (`src/flow_builder.py`); the `resume` kwarg on
->   `build_flow()` threads a caller's resume intent into the runner,
->   which skips entities already marked complete in the on-disk
->   checkpoint.
-> - The CLI path is now reachable: `scripts/run_custom_flow.py`
->   exposes a `--resume` flag via `parse_cli_args()` and passes
->   `args.resume` to `build_flow(..., resume=...)`.  Invoke as
->   `python scripts/run_custom_flow.py --resume` after editing the
->   module-level `flow_config` to point at the flow YAML you want to
->   continue.
+> **Status: partially implemented.** Entity-level resume exists in
+> `src/flow_builder.py` and `scripts/run_custom_flow.py`, and the server
+> can re-dispatch runs, but the fuller retry/checkpoint/progress UX
+> described below is only partly implemented.
 
 Long-running pipelines (hundreds of entities, thousands of LLM calls) will
 inevitably encounter failures: rate limits, network timeouts, transient API
@@ -2140,6 +2153,9 @@ page shows:
 
 ### 2.1 Architecture
 
+> **Status: implemented.** The React Flow + FastAPI architecture described
+> here exists in `gui/src/flow_editor/*` and `server/app.py`.
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                     Browser (React)                          │
@@ -2196,6 +2212,10 @@ page shows:
 
 ### 2.2 Why OpenRouter (not local vLLM)
 
+> **Status: implemented.** OpenRouter support is live through
+> `src/flow_loader.py`, `server/services/model_list_proxy.py`, and
+> `server/routes/settings.py`.
+
 The current codebase uses a local vLLM server (`http://localhost:8000/v1`),
 which works for batch runs on your own GPU machine. Once the app is hosted on
 Render (or any cloud PaaS), there is no local GPU. You need a remote LLM API.
@@ -2217,6 +2237,10 @@ endpoint is `https://openrouter.ai/api/v1` and the API key goes in the
 `Authorization` header, same as OpenAI.
 
 ### 2.3 Platform & Tooling Choices
+
+> **Status: implemented.** The chosen stack is present: React/Vite/React
+> Flow in `gui/package.json`, FastAPI/CORS in `server/app.py`, and
+> Celery/Redis in `server/celery_app.py`.
 
 #### Frontend
 
@@ -2266,6 +2290,10 @@ Either stack works. Render is simpler (one platform for everything).
 
 ### 2.4 Data Flow: From Drag-Drop to Execution
 
+> **Status: implemented.** The graph-to-YAML-to-runner pipeline is live via
+> `gui/src/serialisation/*`, `server/workers/flow_task.py`, and the run
+> pages in `gui/src/pages/`.
+
 ```
 User drags nodes → React Flow graph state (Zustand)
                           │
@@ -2305,6 +2333,10 @@ User drags nodes → React Flow graph state (Zustand)
 
 ### 2.5 Node Type Registry & Edge Schema
 
+> **Status: partially implemented.** The registry endpoint and unit-aware
+> edge rendering exist, but the full `EdgeSchema` /
+> `consumes`-driven validation described below is only partly implemented.
+
 The backend exposes a `GET /api/schema/node-types` endpoint that returns the
 full registry from section 1.7 as JSON.  The frontend reads this at startup
 to populate the node palette, validate connections, and render property
@@ -2343,6 +2375,10 @@ field to validate connections.  If `data_type` is not in the processor's
 data types the processor accepts.
 
 ### 2.6 Preset Flow Templates
+
+> **Status: implemented.** Templates are live in `config/templates/`,
+> exposed by `server/routes/templates.py`, and surfaced in
+> `gui/src/components/NewFlowDialog.tsx`.
 
 New users should not face a blank canvas.  The app ships with three built-in
 templates that cover the most common pipeline shapes.  Templates are regular
@@ -2385,6 +2421,10 @@ and configures LLM settings.  All nodes are fully editable — the template
 is a starting point, not a locked configuration.
 
 ### 2.7 Taxonomy Editor
+
+> **Status: partially implemented.** Taxonomy CRUD exists in the backend
+> and GUI, but the in-node property-panel editor described below is only
+> partly realised.
 
 New users on the hosted app cannot reference a server-side `taxonomy.json`
 file path.  The Taxonomy resource node includes an in-app editor for
@@ -2444,6 +2484,11 @@ taxonomy: config/taxonomy.json      # local file (CLI mode)
 
 ### 2.8 UX Approach: All Features Visible
 
+> **Status: partially implemented.** Tabbed property panels, palette
+> descriptions, and template-based onboarding exist, but some of the
+> richer discoverability copy and validation guidance described below are
+> still missing.
+
 The GUI takes a power-user approach: all features (node palette, I/O schema
 editor, prompt editor, unit badges, resource nodes) are visible from the
 start.  There is no "beginner mode" that hides advanced capabilities.
@@ -2462,6 +2507,11 @@ Discoverability is handled through:
 
 ### 2.9 Security Considerations
 
+> **Status: partially implemented.** Declarative flow execution and
+> env-based secret handling exist, but the broader auth, encrypted key
+> storage, upload policy, and rate-limit controls in this section are only
+> partly implemented.
+
 | Concern | Mitigation |
 |---------|------------|
 | API keys in YAML | Never store keys in YAML. Use `api_key_env` to reference env vars. Backend reads from `os.environ`. GUI has a "secrets" settings page that sets env vars on the server (or uses Render's env var config). |
@@ -2471,6 +2521,10 @@ Discoverability is handled through:
 | Cost control | OpenRouter supports per-key spend limits. Backend enforces max rows per run (configurable). |
 
 ### 2.10 Detailed Effort Breakdown
+
+> **Status: partially implemented.** Most major rows in this breakdown now
+> exist in code and tests, but encrypted API-key storage, free-tier
+> enforcement, and richer edge-schema UX remain unfinished.
 
 | Component | Effort | Dependencies |
 |-----------|--------|--------------|
@@ -2521,6 +2575,9 @@ Discoverability is handled through:
 
 ### 2.11 Lighter Alternative: Streamlit Form (instead of full GUI)
 
+> **Status: not implemented.** This repo chose the React/FastAPI path;
+> there is no Streamlit alternative app checked in.
+
 If a full React node editor is overkill for the current use case (mostly
 linear pipelines), a Streamlit app provides 80% of the value at 20% effort:
 
@@ -2559,6 +2616,10 @@ linear pipelines), a Streamlit app provides 80% of the value at 20% effort:
 | Best for | Linear pipelines, quick config, current team | Non-technical users, complex branching flows, product demo |
 
 ### 2.12 Recommended Project Layout
+
+> **Status: partially implemented.** The repo broadly matches this layout
+> (`src/`, `config/`, `server/`, `gui/`, `render.yaml`), but several names
+> and file placements differ from the plan.
 
 ```
 messy_text/
@@ -2623,6 +2684,10 @@ messy_text/
 
 ### 2.13 Render Blueprint (`render.yaml`)
 
+> **Status: partially implemented.** A Render blueprint exists in
+> `render.yaml`, but it is explicitly marked not yet deployed and differs
+> from the exact example below.
+
 Infrastructure-as-code for one-command deployment:
 
 ```yaml
@@ -2669,6 +2734,10 @@ databases:
 ```
 
 ### 2.14 Suggested Implementation Order
+
+> **Status: implemented.** The major deliverables listed in this sequence
+> now exist across `src/`, `server/`, `gui/`, and the test suite, with the
+> remaining gaps called out in earlier status notes.
 
 ```
 Week 1:  Phase 1 — flow_loader.py (Pydantic models: column_roles, unit

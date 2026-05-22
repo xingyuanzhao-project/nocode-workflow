@@ -32,7 +32,7 @@ Usage
 
 From the project root::
 
-    python scripts/test_customize_flow.py
+    python tests/scripts/test_customize_flow.py
 
 The script exits with code 0 on success and raises (non-zero exit) on
 any assertion failure, so it can be used as a CI smoke test.

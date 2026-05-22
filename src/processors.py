@@ -271,19 +271,35 @@ class MessyTextConversationState:
         return self.results[-1].get("summary") or ""
 
 class MessyTextLogicMixin:
-    """
-    Contains pure logic for MessyTextProcessor.
-    Handles text cleaning, prompt construction, and response parsing.
-    Decoupled from I/O (client calls).
+    """Shared prompt-construction and text-cleaning logic for summary/classification.
+
+    Subclassed by :class:`MessyTextProcessor` (sync) and
+    :class:`AsyncMessyTextProcessor` (async), which add the actual client
+    calls.  This mixin holds no client reference and performs no I/O.
+
+    Attributes:
+        config: Runtime config dict carrying ``model``, ``processing``,
+            ``prompts``, ``logging``, and optional per-step overrides
+            (``io_schema_resolved``, ``prompt_resolved``).
+        definitions: Taxonomy ``context_definitions`` dict mapping label
+            keys to human-readable definitions.
+        labels: Taxonomy ``label_options`` dict mapping label keys to
+            lists of valid values.
+        logger: Logger instance.
+        model_name: Model identifier read from ``config['model']['name']``.
+        last_summary_result: Most recent summary :class:`ProcessorResult`.
+        last_classification_result: Most recent classification
+            :class:`ProcessorResult`.
     """
     def __init__(self, config: Dict[str, Any], taxonomy: Dict[str, Any], logger: logging.Logger):
-        """
-        Initializes the logic mixin with configuration and taxonomy.
+        """Initialise with runtime config, taxonomy, and logger.
 
         Args:
-            config (Dict[str, Any]): Runtime settings (model name, tokens, etc).
-            taxonomy (Dict[str, Any]): Static definitions (context_definitions, label_options).
-            logger (logging.Logger): Logger instance.
+            config: Runtime settings dict (model name, generation
+                parameters, prompt payload, optional step overrides).
+            taxonomy: Parsed taxonomy JSON with ``context_definitions``
+                and ``label_options`` keys.
+            logger: Logger instance.
         """
         self.config = config
         self.definitions = taxonomy['context_definitions']
@@ -735,11 +751,22 @@ def _attach_span_offsets_to_result(
     source_text: str,
     doc_id: Optional[Any],
 ) -> Optional[ProcessorResult]:
-    """
-    Enrich summary_by_item entries with offsets computed from source_text.
+    """Enrich ``summary_by_item`` span entries with character offsets.
 
-    Offsets are only computed when summary_by_item is a dict; otherwise the
-    result is returned unchanged.
+    For every span dict inside ``result.values["summary_by_item"]``,
+    searches *source_text* for the span string and writes the character
+    offset (or ``-1``) into the ``offset`` key.  Also stamps each span
+    with *doc_id* so downstream records stay aligned with the input.
+
+    Args:
+        result: The processor result to enrich.  ``None`` is returned
+            as-is.
+        source_text: The cleaned document text to search for spans.
+        doc_id: Document identifier written into every span dict.
+
+    Returns:
+        The same *result* instance with offsets attached, or ``None``
+        when *result* is ``None``.
     """
     if result is None:
         return None
@@ -769,30 +796,43 @@ def _attach_span_offsets_to_result(
 
 
 class MessyTextProcessor(MessyTextLogicMixin):
-    """
-    Synchronous processor implementation.
-    Maintains exact backward compatibility with original implementation.
+    """Synchronous summary and classification processor.
+
+    Wraps a synchronous ``OpenAI`` client and exposes :meth:`summarize_text`
+    and :meth:`classify_summary` as the public API.  Each call stores a
+    :class:`ProcessorResult` on the instance for richer consumers.
+
+    Attributes:
+        client: Synchronous ``OpenAI`` or vLLM client instance.
     """
     def __init__(self, client: Any, config: Dict[str, Any], taxonomy: Dict[str, Any], logger: logging.Logger):
-        """
-        Initializes the synchronous processor.
+        """Initialise the synchronous processor.
 
         Args:
-            client (OpenAI): The synchronous OpenAI/vLLM client instance.
-            config (Dict[str, Any]): Runtime settings (model name, tokens, etc).
-            taxonomy (Dict[str, Any]): Static definitions (context_definitions, label_options).
-            logger (logging.Logger): Logger instance.
+            client: Synchronous ``OpenAI`` client instance.
+            config: Runtime settings dict (model, processing, prompts,
+                logging, optional step overrides).
+            taxonomy: Parsed taxonomy JSON.
+            logger: Logger instance.
         """
         super().__init__(config, taxonomy, logger)
         self.client = client
 
     def summarize_text(self, text: str, doc_id: Optional[Any] = None) -> str:
-        """
-        Run a summarization call, store a ProcessorResult, and return the summary text.
+        """Summarise *text* via one LLM call and return the summary string.
 
-        This is the single public API for non-conversational summarization.
-        Existing callers that expect a string remain compatible; richer
-        consumers can read self.last_summary_result.
+        Stores the full :class:`ProcessorResult` in
+        :attr:`last_summary_result` for callers that need structured
+        access.
+
+        Args:
+            text: Cleaned document text.  Empty input short-circuits to
+                ``"No relevant information found"``.
+            doc_id: Optional document identifier for traceability.
+
+        Returns:
+            The ``summary`` field extracted from the LLM response, or
+            ``"No relevant information found"`` on empty input or error.
         """
         # Empty input: record a trivial "no information" result and return sentinel.
         if not text:
@@ -853,10 +893,20 @@ class MessyTextProcessor(MessyTextLogicMixin):
         key: str,
         doc_id: Optional[Any] = None,
     ) -> str:
-        """
-        Run a classification call, store a ProcessorResult, and return the result string.
+        """Classify *summary* against taxonomy *key* and return the label.
 
-        This is the single public API for non-conversational classification.
+        Stores the full :class:`ProcessorResult` in
+        :attr:`last_classification_result`.
+
+        Args:
+            summary: Summary text to classify.
+            key: Taxonomy key (e.g. ``"vic_grupo_social"``).
+            doc_id: Optional document identifier for traceability.
+
+        Returns:
+            The ``result`` field from the LLM response, or
+            ``"No information"`` when the summary is empty or the key
+            has no definition.
         """
         kwargs = self._get_classification_args(summary, key)
         if kwargs is None:
@@ -911,9 +961,16 @@ class MessyTextProcessor(MessyTextLogicMixin):
 
 
 class AsyncMessyTextProcessor(MessyTextLogicMixin):
-    """
-    Asynchronous processor implementation for high-throughput servers.
-    Uses async/await patterns with AsyncOpenAI client.
+    """Asynchronous summary and classification processor.
+
+    Wraps an ``AsyncOpenAI`` client and exposes async
+    :meth:`summarize_text` and :meth:`classify_summary`.  Each call
+    stores a :class:`ProcessorResult` on the instance.
+
+    Attributes:
+        client: Asynchronous ``AsyncOpenAI`` client instance.
+        _llm_semaphore: Optional semaphore capping concurrent in-flight
+            LLM requests.
     """
     def __init__(
         self,
@@ -923,24 +980,32 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
         logger: logging.Logger,
         llm_semaphore: Optional[asyncio.Semaphore] = None,
     ):
-        """
-        Initializes the asynchronous processor.
+        """Initialise the asynchronous processor.
 
         Args:
-            client (AsyncOpenAI): The asynchronous OpenAI/vLLM client instance.
-            config (Dict[str, Any]): Runtime settings (model name, tokens, etc).
-            taxonomy (Dict[str, Any]): Static definitions (context_definitions, label_options).
-            logger (logging.Logger): Logger instance.
-            llm_semaphore (Optional[asyncio.Semaphore]): If provided, each LLM
-                call acquires this semaphore, capping in-flight requests globally.
+            client: Asynchronous ``AsyncOpenAI`` client instance.
+            config: Runtime settings dict.
+            taxonomy: Parsed taxonomy JSON.
+            logger: Logger instance.
+            llm_semaphore: When provided, each LLM call acquires this
+                semaphore to cap concurrent in-flight requests.
         """
         super().__init__(config, taxonomy, logger)
         self.client = client
         self._llm_semaphore = llm_semaphore
 
     async def summarize_text(self, text: str, doc_id: Optional[Any] = None) -> str:
-        """
-        Async summarization API: store a ProcessorResult and return the summary text.
+        """Summarise *text* via one async LLM call and return the summary.
+
+        Async counterpart of :meth:`MessyTextProcessor.summarize_text`.
+
+        Args:
+            text: Cleaned document text.
+            doc_id: Optional document identifier for traceability.
+
+        Returns:
+            The ``summary`` field from the LLM response, or
+            ``"No relevant information found"`` on empty input or error.
         """
         if not text:
             self.last_summary_result = ProcessorResult(
@@ -1002,8 +1067,19 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
         key: str,
         doc_id: Optional[Any] = None,
     ) -> str:
-        """
-        Async classification API: store a ProcessorResult and return the result string.
+        """Classify *summary* against taxonomy *key* asynchronously.
+
+        Async counterpart of :meth:`MessyTextProcessor.classify_summary`.
+
+        Args:
+            summary: Summary text to classify.
+            key: Taxonomy key (e.g. ``"vic_grupo_social"``).
+            doc_id: Optional document identifier for traceability.
+
+        Returns:
+            The ``result`` field from the LLM response, or
+            ``"No information"`` when the summary is empty or the key
+            has no definition.
         """
         kwargs = self._get_classification_args(summary, key)
         if kwargs is None:
@@ -1280,21 +1356,22 @@ class MessyTextConversationOrchestrator:
 
 
 class AsyncMessyTextConversationTurnProcessor:
-    """
-    Asynchronous counterpart of MessyTextConversationTurnProcessor.
+    """Async single-turn conversation processor wrapping :class:`AsyncMessyTextProcessor`.
 
-    This class wraps an AsyncMessyTextProcessor and exposes an async interface
-    for running a single summarization turn with optional conversation state.
+    Cleans text, calls the underlying processor's conversation-summary
+    method, attaches span offsets, logs the turn when ``log_response`` is
+    enabled, and returns an updated :class:`MessyTextConversationState`.
+
+    Attributes:
+        processor: The underlying :class:`AsyncMessyTextProcessor`.
     """
 
     def __init__(self, processor: AsyncMessyTextProcessor) -> None:
-        """
-        Initializes the async turn processor.
+        """Initialise the async turn processor.
 
         Args:
-            processor (AsyncMessyTextProcessor): The underlying asynchronous
-                processor responsible for cleaning, prompt construction, and
-                LLM calls.
+            processor: The underlying async processor responsible for
+                cleaning, prompt construction, and LLM calls.
         """
         self.processor = processor
 

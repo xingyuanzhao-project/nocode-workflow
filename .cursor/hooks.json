@@ -5,6 +5,10 @@
       {
         "command": "python .cursor/hooks/check-docstrings.py",
         "matcher": "Write"
+      },
+      {
+        "command": "python .cursor/hooks/check-test-quality.py",
+        "matcher": "Write"
       }
     ]
   }
