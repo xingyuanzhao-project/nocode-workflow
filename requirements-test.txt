@@ -1,0 +1,17 @@
+# Test-only dependencies for the agent_paper backend.
+# Install alongside requirements.txt and server/requirements.txt:
+#   .\.venv\Scripts\python -m pip install -r requirements-test.txt
+
+pytest>=8.0
+pytest-asyncio>=0.23
+pytest-mock>=3.12
+pytest-xdist>=3.5
+
+# Unit-test doubles for infrastructure the tests never want to hit.
+fakeredis>=2.23
+respx>=0.21
+freezegun>=1.5
+
+# Playwright drives the GUI e2e suite from the Python side when we want
+# one pytest harness. Not required for the vitest/npm playwright path.
+anyio>=4.3

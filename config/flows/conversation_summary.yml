@@ -1,0 +1,99 @@
+# Conversation-based multi-turn entity-level summary.
+# Mirrors the topology of scripts/run_summary_conversation.py:
+# documents are grouped by entity, then processed sequentially within
+# each entity using two prompts (summary_first for the first document,
+# summary_update for subsequent documents).
+#
+# Run this flow with:
+#   python scripts/run_custom_flow.py
+# after setting `flow_config` in that script to this YAML path.
+
+flow:
+  schema_version: 1
+  name: conversation_summary
+  description: "Conversation-based multi-turn entity-level summary"
+
+  # ── LLM providers (named resources) ──────────────────────────────
+  # API keys are NEVER stored in YAML. Use `api_key_env` to name the
+  # environment variable that holds the secret. The builder loads
+  # project-root `.env` at startup (via python-dotenv or manual read)
+  # and resolves `api_key_env` against `os.environ`.
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/llama-3.1-70b-instruct
+      api_base: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens_summary: 1024
+      max_tokens_classification: 256
+
+    # To use local vLLM instead, swap the default resource with:
+    # - id: default
+    #   type: llm_provider
+    #   provider: local_vllm
+    #   model: hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4
+    #   api_base: http://localhost:8000/v1
+    #   api_key: dummy
+    #   temperature: 0.0
+    #   max_tokens_summary: 1024
+    #   max_tokens_classification: 256
+
+  # ── Data source & column mapping ─────────────────────────────────
+  # The user's CSV can have any column names. `column_roles` maps them
+  # to the roles the pipeline requires. No column name is hard-coded.
+  data:
+    input_csv: data/df_text_by_report.csv
+    column_roles:
+      text: text              # column containing raw document text
+      entity_id: victim       # column that groups rows into entities
+      doc_id: index           # column identifying each document
+      sort_by: index          # column used to order documents within an entity
+      # passthrough: [source_url, date_published]
+
+  # ── Taxonomy & prompts (reuse existing config files) ─────────────
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+
+  # ── Pipeline steps (executed in order) ───────────────────────────
+  # Two-step conversation summary:
+  #   - conversation_summary_first  : first document in entity, no previous_summary
+  #                                   (selects prompts.summary_first)
+  #   - conversation_summary_update : subsequent documents, carries previous_summary
+  #                                   (selects prompts.summary_update)
+  # The runner merges the pair into a single sequential loop per entity.
+  steps:
+    - type: conversation_summary_first
+      unit: document
+      group_by: entity
+
+    - type: conversation_summary_update
+      unit: document
+      group_by: entity
+
+  # ── Async / concurrency ──────────────────────────────────────────
+  async:
+    enabled: true
+    max_concurrent_rows: 15
+    max_concurrent_llm_calls: 50
+    max_retries: 5
+
+  # ── Output paths ─────────────────────────────────────────────────
+  # Custom flows write to results_custom/ to avoid overwriting the
+  # existing production results in results_down_sized/.
+  output:
+    summary_csv: results_custom/summary.csv
+    results_csv: results_custom/results.csv
+    states_csv: results_custom/states.csv
+    spans_csv: results_custom/spans.csv
+    extend: false
+
+  # ── Misc ─────────────────────────────────────────────────────────
+  logging:
+    file: processing.log
+    log_progress: true
+    log_prompts: false
+    log_response: false
+  display:
+    use_progress_bar: true

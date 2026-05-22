@@ -1,0 +1,20 @@
+references/
+
+# Secrets
+.env
+hftoken.md
+
+# Python environments
+.venv/
+__pycache__/
+*.pyc
+
+# Flow run artefacts
+results_custom/
+processing.log
+
+# Large data files (over GitHub 100 MB limit)
+data/ncsl_bills.jsonl
+
+# Server runtime artefacts (flows, taxonomies, uploads, per-run outputs).
+server/data/

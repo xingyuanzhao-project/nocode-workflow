@@ -1,0 +1,104 @@
+# Render Blueprint for the agent_paper backend + GUI.
+#
+# Four services:
+#
+# - agent-paper-api            (web, Docker)     — FastAPI app serving
+#                                                 /api/* plus /openapi.json.
+# - agent-paper-celery-worker  (worker, Docker)  — Celery worker pulling
+#                                                 from the same Redis.
+# - agent-paper-redis          (redis)           — broker, result backend,
+#                                                 app-state DBs (logical
+#                                                 DBs 0/1/2 on one
+#                                                 instance).
+# - agent-paper-gui            (static site)     — the Vite/React SPA
+#                                                 built from gui/.
+#
+# NOT YET DEPLOYED. This file is committed so the deploy step is a
+# single `render deploy` away; do not run deploy without first
+# re-verifying the values of `sync: false` env vars in Render's UI.
+
+services:
+  - type: web
+    name: agent-paper-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: server/Dockerfile
+    dockerCommand: uvicorn server.app:create_app --factory --host 0.0.0.0 --port 8000
+    healthCheckPath: /api/health
+    envVars:
+      # OpenRouter credentials used by the flow_builder's .env loader.
+      # Marked `sync: false` so the key is set once in Render's dashboard
+      # and never checked in.
+      - key: OPENROUTER_API_KEY
+        sync: false
+      # Shared Redis URL. Render injects the managed instance's
+      # connection string automatically.
+      - key: AGENT_PAPER_REDIS_URL
+        fromService:
+          name: agent-paper-redis
+          type: redis
+          property: connectionString
+      # Persistent data directory (bind-mounted in Docker to the
+      # `agent-paper-data` disk declared below). Uses the same
+      # project-root-relative POSIX convention as the local
+      # docker-compose stack.
+      - key: AGENT_PAPER_DATA_DIR
+        value: /app/server/data
+      # CORS allowlist: the GUI origin. Set in the Render UI so the
+      # deploy script never overrides it.
+      - key: AGENT_PAPER_CORS_ORIGINS
+        sync: false
+    disk:
+      name: agent-paper-data
+      mountPath: /app/server/data
+      sizeGB: 1
+
+  - type: worker
+    name: agent-paper-celery-worker
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: server/Dockerfile
+    dockerCommand: celery -A server.celery_app worker --loglevel=info --pool=solo --concurrency=1
+    envVars:
+      # The worker needs the same API key, Redis URL, and data dir
+      # as the web service. An env group keeps them in sync.
+      - fromGroup: agent-paper-shared-env
+
+  - type: redis
+    name: agent-paper-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+  - type: web
+    name: agent-paper-gui
+    runtime: static
+    region: oregon
+    buildCommand: cd gui && npm ci && npm run build
+    staticPublishPath: gui/dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      # Base URL of the backend. Set to the agent-paper-api
+      # Render URL in the dashboard (for example
+      # https://agent-paper-api.onrender.com). Empty in local
+      # previews so the built GUI uses path-relative /api URLs.
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+# Shared env group referenced by the worker above.
+envVarGroups:
+  - name: agent-paper-shared-env
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: AGENT_PAPER_REDIS_URL
+        sync: false
+      - key: AGENT_PAPER_DATA_DIR
+        value: /app/server/data

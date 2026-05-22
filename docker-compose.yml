@@ -1,0 +1,80 @@
+# Local development stack for the agent_paper backend.
+#
+# One image (server/Dockerfile) serves both the FastAPI web process
+# (uvicorn) and the Celery worker. Running both in containers keeps
+# the development environment byte-for-byte aligned with the Render
+# deployment: same Python interpreter, same Linux filesystem
+# semantics, same POSIX path layout under /app. Flow YAMLs stay
+# portable because every path inside them is project-root-relative
+# (enforced by src.flow_loader._validate_project_relative_posix_path).
+#
+# Services:
+#   redis         - broker (db 0), result backend (db 1), RunRegistry (db 2)
+#   web           - uvicorn FastAPI app, hot-reload on ./src and ./server
+#   celery_worker - solo pool with concurrency=1 (asyncio runner inside)
+#
+# Single-terminal workflow:
+#   docker compose up --build
+#   -> open http://localhost:8000/docs
+#
+# Python source changes on the host propagate into the containers via
+# bind mounts; uvicorn --reload picks up web edits automatically. For
+# worker edits run `docker compose restart celery_worker`.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agent_paper_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - agent_paper_redis_data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: agent_paper_backend:local
+    container_name: agent_paper_web
+    command: >-
+      uvicorn server.app:create_app --factory
+      --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/src --reload-dir /app/server
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      AGENT_PAPER_REDIS_URL: redis://redis:6379
+      AGENT_PAPER_DATA_DIR: /app/server/data
+    volumes:
+      - ./src:/app/src
+      - ./server:/app/server
+      - ./config:/app/config:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: agent_paper_backend:local
+    container_name: agent_paper_celery_worker
+    command: >-
+      celery -A server.celery_app worker
+      --loglevel=info --pool=solo --concurrency=1
+    depends_on:
+      - redis
+    environment:
+      AGENT_PAPER_REDIS_URL: redis://redis:6379
+      AGENT_PAPER_DATA_DIR: /app/server/data
+    volumes:
+      - ./src:/app/src
+      - ./server:/app/server
+      - ./config:/app/config:ro
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+
+volumes:
+  agent_paper_redis_data:

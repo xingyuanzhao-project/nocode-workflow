@@ -1,0 +1,95 @@
+# Evaluation-only pipeline expressed as a plain single-summary flow.
+#
+# This YAML demonstrates that the previously special-cased "evaluation"
+# step type is just another flow under the new node-registry framework.
+# It reads a CSV that already has ``summary_all_context`` populated by a
+# prior run and asks the LLM to score each summary on faithfulness and
+# relevance to its own declared content. The step body uses:
+#
+# - ``type: single_summary`` (a registered processor step type in
+#   ``config/node_types.yaml``).
+# - An inline ``io_schema`` that overrides the default single-summary
+#   output shape with eval-specific fields. ``summary`` is retained
+#   because ``AsyncMessyTextProcessor._extract_summary_from_response``
+#   reads that key when populating ``summary_all_context``; the eval
+#   fields ``evaluation_score`` and ``evaluation_rationale`` are
+#   captured alongside it in the model output JSON and can be parsed
+#   downstream if the consumer reads the raw response.
+# - An inline ``prompt`` that replaces the ``summary`` prompt entry in
+#   ``config/prompts.json`` with evaluation-style instructions.
+#
+# Run with:
+#   .\.venv\Scripts\python.exe scripts/run_custom_flow.py
+# after setting ``flow_config`` to this YAML path.
+
+flow:
+  schema_version: 1
+  name: evaluation_only
+  description: "LLM-as-judge summary evaluation via the single-summary override path"
+
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/llama-3.1-70b-instruct
+      api_base: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens_summary: 1024
+      max_tokens_classification: 256
+
+  data:
+    # Reads an existing summary-shaped CSV. The openrouter smoke test
+    # writes `summary_all_context` to this file; point `input_csv` at
+    # whichever summary CSV already has that column populated.
+    input_csv: results_custom/openrouter_smoke_summary.csv
+    column_roles:
+      text: summary_all_context
+      entity_id: victim
+      doc_id: index
+      sort_by: index
+
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+
+  steps:
+    - type: single_summary
+      unit: row
+      io_schema:
+        input:
+          input_text: {type: string}
+        output:
+          info_found: {type: string}
+          evaluation_score: {type: string}
+          evaluation_rationale: {type: string}
+          summary: {type: string}
+      prompt:
+        instructions:
+          - "You are an LLM-as-judge evaluator."
+          - "Read the candidate summary supplied as {input_text_label}."
+          - "Rate the summary on a 1-5 integer scale for faithfulness and internal consistency."
+          - "Populate {info_found_label} with 'TRUE' if the summary contains substantive content, else 'FALSE'."
+          - "Populate evaluation_score with the numeric rating as a string."
+          - "Populate evaluation_rationale with a one-sentence justification."
+          - "Populate {summary_label} with a concise restatement of the rating and justification."
+          - "Return the output strictly matching the supplied output schema."
+
+  # processing_limit caps the number of rows scored. Keep at 1 for a
+  # live smoke test; raise or remove to score the full input CSV.
+  processing_limit: 1
+
+  async:
+    enabled: true
+    max_concurrent_rows: 10
+    max_concurrent_llm_calls: 10
+    max_retries: 5
+
+  output:
+    summary_csv: results_custom/evaluation_scores.csv
+    extend: false
+
+  logging:
+    file: processing.log
+    log_progress: true
+  display:
+    use_progress_bar: true

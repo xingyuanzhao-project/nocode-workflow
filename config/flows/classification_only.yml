@@ -1,0 +1,54 @@
+# Classification-only pipeline (expects summary_all_context already present).
+# Mirrors the topology of scripts/run_classification.py.
+#
+# Run with:
+#   python scripts/run_custom_flow.py
+# after setting `flow_config` to this YAML path.
+
+flow:
+  schema_version: 1
+  name: classification_only
+  description: "Classify existing summaries using all taxonomy keys"
+
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/llama-3.1-70b-instruct
+      api_base: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens_summary: 1024
+      max_tokens_classification: 256
+
+  data:
+    input_csv: results_custom/summary.csv
+    column_roles:
+      text: text
+      entity_id: victim
+      doc_id: index
+      sort_by: index
+
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+
+  steps:
+    - type: classification
+      unit: row
+      keys: all
+
+  async:
+    enabled: true
+    max_concurrent_rows: 50
+    max_concurrent_llm_calls: 50
+    max_retries: 5
+
+  output:
+    summary_csv: results_custom/classification_only.csv
+    extend: false
+
+  logging:
+    file: processing.log
+    log_progress: true
+  display:
+    use_progress_bar: true

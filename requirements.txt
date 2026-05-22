@@ -1,0 +1,20 @@
+# Minimal requirements to run scripts/run_custom_flow.py
+# Derived from the transitive imports of src/flow_builder.py
+# (see messy_text/requirements.txt for the full research-grade pin list
+# that also covers optional benchmarks like summac / vllm / deepeval).
+
+# --- Core flow builder + runner -----------------------------------
+openai>=1.0.0
+pandas==2.3.3
+pydantic==2.12.3
+PyYAML==6.0.3
+tqdm==4.67.1
+psutil==7.1.2
+
+# JSON repair is a hard dep of src/processors.py
+json-repair
+
+# .env loader. src/flow_builder.py imports it lazily and falls back
+# to a manual parser, but having it installed makes the behaviour
+# match the original messy_text project.
+python-dotenv>=1.0.0

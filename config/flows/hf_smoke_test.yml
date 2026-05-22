@@ -1,0 +1,72 @@
+# Live smoke-test flow for agent_paper port of messy_text.
+#
+# Uses the HuggingFace Inference Providers OpenAI-compatible router
+# (https://router.huggingface.co/v1) with the HF token copied from
+# messy_text/hftoken.md into .env as OPENROUTER_API_KEY.
+#
+# provider stays as "openrouter" because the flow_loader enum only
+# accepts {local_vllm, openrouter, openai}; api_base is overridden
+# to point at HF's router, which accepts the provider's OpenAI
+# client protocol unchanged.
+#
+# processing_limit: 2 keeps the live run small (two entities -> a
+# handful of LLM calls) so the smoke test finishes in seconds.
+
+flow:
+  schema_version: 1
+  name: hf_smoke_test
+  description: "Live smoke test using HuggingFace OpenAI router + hftoken"
+
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/Llama-3.1-8B-Instruct
+      api_base: https://router.huggingface.co/v1
+      api_key_env: OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens_summary: 256
+      max_tokens_classification: 64
+
+  data:
+    input_csv: data/df_text_by_report.csv
+    column_roles:
+      text: text
+      entity_id: victim
+      doc_id: index
+      sort_by: index
+
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+
+  steps:
+    - type: conversation_summary_first
+      unit: document
+      group_by: entity
+
+    - type: conversation_summary_update
+      unit: document
+      group_by: entity
+
+  processing_limit: 2
+
+  async:
+    enabled: true
+    max_concurrent_rows: 2
+    max_concurrent_llm_calls: 4
+    max_retries: 3
+
+  output:
+    summary_csv: results_custom/hf_smoke_summary.csv
+    results_csv: results_custom/hf_smoke_results.csv
+    states_csv: results_custom/hf_smoke_states.csv
+    spans_csv: results_custom/hf_smoke_spans.csv
+    extend: false
+
+  logging:
+    file: processing.log
+    log_progress: true
+    log_prompts: false
+    log_response: false
+  display:
+    use_progress_bar: true

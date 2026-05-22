@@ -1,0 +1,24 @@
+# flow.steps is empty; should be rejected by FlowConfig.validate_steps_non_empty.
+flow:
+  schema_version: 1
+  name: invalid_missing_steps
+  description: Steps list intentionally empty.
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/llama-3.1-70b-instruct
+      api_base: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+  data:
+    input_csv: data/df_text_by_report.csv
+    column_roles:
+      text: text
+      entity_id: victim
+      doc_id: index
+      sort_by: index
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+  steps: []
+  output:
+    summary_csv: results/fixture/summary.csv

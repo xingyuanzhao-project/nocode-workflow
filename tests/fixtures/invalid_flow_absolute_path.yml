@@ -1,0 +1,27 @@
+# data.input_csv is an absolute POSIX path; must be rejected by the
+# project-root-relative validator.
+flow:
+  schema_version: 1
+  name: invalid_absolute_path
+  description: Absolute POSIX path is not portable host/container.
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/llama-3.1-70b-instruct
+      api_base: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+  data:
+    input_csv: /absolute/path/to/data.csv
+    column_roles:
+      text: text
+      entity_id: victim
+      doc_id: index
+      sort_by: index
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+  steps:
+    - type: single_summary
+      unit: row
+  output:
+    summary_csv: results/fixture/summary.csv

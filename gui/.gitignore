@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-node-dts
+dist-ssr
+.vite
+.playwright
+playwright-report
+test-results
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo

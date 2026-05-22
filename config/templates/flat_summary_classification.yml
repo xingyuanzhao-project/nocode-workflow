@@ -1,0 +1,67 @@
+# Preset template: Flat Summary + Classification.
+#
+# Pipeline shape:
+#   CSV Data -> Single Summary (row) -> Classification (row) -> CSV Output
+#
+# Target user: users whose CSV has one row per entity (no grouping). Each
+# row is summarised in one LLM call, then classified against every key
+# in the taxonomy in a second call. Both steps run row-by-row with full
+# concurrency.
+#
+# Users start from this template, then edit:
+#   - data.input_csv        to the CSV they uploaded
+#   - data.column_roles.*   to match their CSV column names
+#   - resources[0].model    to the model they want
+#   - output.*              to artifact names they prefer
+
+flow:
+  schema_version: 1
+  name: flat_summary_classification
+  description: "Per-row summary then per-row taxonomy classification"
+
+  resources:
+    - id: default
+      type: llm_provider
+      provider: openrouter
+      model: meta-llama/llama-3.1-70b-instruct
+      api_base: https://openrouter.ai/api/v1
+      api_key_env: OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens_summary: 1024
+      max_tokens_classification: 256
+
+  data:
+    input_csv: data/df_text_by_report.csv
+    column_roles:
+      text: text
+      entity_id: victim
+      doc_id: index
+      sort_by: index
+
+  taxonomy: config/taxonomy.json
+  prompts: config/prompts.json
+
+  steps:
+    - type: single_summary
+      unit: row
+
+    - type: classification
+      unit: row
+      keys: all
+
+  async:
+    enabled: true
+    max_concurrent_rows: 50
+    max_concurrent_llm_calls: 50
+    max_retries: 5
+
+  output:
+    summary_csv: results_custom/flat_summary_classification_summary.csv
+    results_csv: results_custom/flat_summary_classification_results.csv
+    extend: false
+
+  logging:
+    file: processing.log
+    log_progress: true
+  display:
+    use_progress_bar: true
