@@ -35,206 +35,76 @@ entries:
   # ------------------------------------------------------------------
   # processor step types
   # ------------------------------------------------------------------
-  - id: single_summary
+  - id: processor
     category: processor
-    label: Single-document summary
+    label: Default Processor
     description: >-
-      Row-level single-pass summary. One LLM call per row using the
-      ``summary`` prompt key. Implemented by
-      ``AsyncMessyTextProcessor.generate_summary`` in src/processors.py.
+      Generic processing step. Configure output schema and prompt
+      instructions in the right-hand panel.
     default_unit: row
-    consumes: [text]
-    produces: [summary_all_context]
+    consumes: []
+    produces: []
     llm_backed: true
     requires_resources: [llm_provider]
-    default_prompt_ref: summary
+    default_prompt_ref: null
     default_group_by: null
     default_io_schema:
-      input:
-        input_text: {type: string}
-      output:
-        info_found: {type: string}
-        relevant_context: {type: array}
-        summary: {type: string}
-
-  - id: conversation_summary_first
-    category: processor
-    label: Conversation summary (first turn)
-    description: >-
-      Per-entity conversation summary, first turn. Uses the
-      ``summary_first`` prompt key. Emits the conversation_summary schema
-      matching AsyncMessyTextProcessor._get_conversation_summary_args.
-    default_unit: document
-    consumes: [text]
-    produces: [summary_all_context]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: summary_first
-    default_group_by: entity
-    default_io_schema:
-      input:
-        input_text: {type: string}
-        previous_summary: {type: string}
-      output:
-        info_found: {type: string}
-        relevant_context: {type: array}
-        summary_by_item:
-          type: object
-          description: Per-label extractive spans for traceback
-          additionalProperties:
-            type: array
-            items:
-              type: object
-              properties:
-                span: {type: string}
-              required: [span]
-        summary: {type: string}
-
-  - id: conversation_summary_update
-    category: processor
-    label: Conversation summary (update turn)
-    description: >-
-      Per-entity conversation summary, update turn. Uses the
-      ``summary_update`` prompt key. Shares the conversation_summary
-      output schema with conversation_summary_first and participates in
-      the same per-entity loop; the runner executes the paired steps in
-      one pass.
-    default_unit: document
-    consumes: [text, summary_all_context]
-    produces: [summary_all_context]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: summary_update
-    default_group_by: entity
-    default_io_schema:
-      input:
-        input_text: {type: string}
-        previous_summary: {type: string}
-      output:
-        info_found: {type: string}
-        relevant_context: {type: array}
-        summary_by_item:
-          type: object
-          description: Per-label extractive spans for traceback
-          additionalProperties:
-            type: array
-            items:
-              type: object
-              properties:
-                span: {type: string}
-              required: [span]
-        summary: {type: string}
-
-  - id: label_extraction
-    category: processor
-    label: Per-label span extraction
-    description: >-
-      Per-label extractive span extraction. Uses the ``label_spans_extract``
-      prompt key. Produces the label_extract schema shape, one extraction
-      per (document, label) pair. Paired with label_summary in the runner.
-    default_unit: document
-    consumes: [text]
-    produces: [label_spans]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: label_spans_extract
-    default_group_by: entity
-    default_io_schema:
-      input:
-        input_text: {type: string}
-        label_key: {type: string}
-        label_definition: {type: string}
-        previous_spans: {type: array}
-      output:
-        info_found: {type: string}
-        spans:
-          type: array
-          items:
-            type: object
-            properties:
-              span: {type: string}
-            required: [span]
-        confidence_score: {type: string}
-
-  - id: label_summary
-    category: processor
-    label: Label-based summary
-    description: >-
-      Aggregates per-label spans into a per-entity summary. Uses the
-      ``label_summary_first`` / ``label_summary_update`` prompt keys.
-      Emits the label_summary schema.
-    default_unit: document
-    consumes: [text, label_spans]
-    produces: [summary_all_context]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: label_summary_first
-    default_group_by: entity
-    default_io_schema:
-      input:
-        input_text: {type: string}
-        spans_by_item: {type: object}
-        previous_summary: {type: string}
-      output:
-        info_found: {type: string}
-        spans_by_item:
-          type: object
-          additionalProperties:
-            type: array
-            items:
-              type: object
-              properties:
-                span: {type: string}
-              required: [span]
-        summary: {type: string}
-
-  - id: classification
-    category: processor
-    label: Row-level taxonomy classification
-    description: >-
-      One classification call per (row, taxonomy key) pair. Uses the
-      ``classification`` prompt key. Produces the classification schema
-      with evidence + result fields.
-    default_unit: row
-    consumes: [summary_all_context]
-    produces: [classification_results]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: classification
-    default_group_by: null
-    default_io_schema:
-      input:
-        input_text: {type: string}
-        question: {type: string}
-        possible_values: {type: array}
-      output:
-        evidence: {type: string}
-        result: {type: string}
+      output: {}
 
   # ------------------------------------------------------------------
-  # data node types (informational; the builder does not instantiate
-  # these yet, but the registry keeps them here for the future GUI)
+  # data node types
   # ------------------------------------------------------------------
   - id: csv_input
     category: data
-    label: CSV input table
-    description: >-
-      On-disk tabular input. Consumed by FlowRunner._load_input_csv.
-      Column-role binding is handled by src/flow_loader.py::ColumnRoles.
+    label: CSV input
+    description: Select a CSV file from your uploaded data.
     default_unit: row
     consumes: []
     produces: [text, entity_id, doc_id, sort_by]
 
+  - id: json_input
+    category: data
+    label: JSON input
+    description: Select a JSON/JSONL file from your uploaded data.
+    default_unit: row
+    consumes: []
+    produces: [text, entity_id, doc_id, sort_by]
+
+  - id: csv_output
+    category: data
+    label: CSV output
+    description: Write processing results to a CSV file.
+    default_unit: null
+    consumes: []
+    produces: []
+
+  - id: json_output
+    category: data
+    label: JSON output
+    description: Write processing results to a JSON file.
+    default_unit: null
+    consumes: []
+    produces: []
+
   # ------------------------------------------------------------------
   # resource node types
   # ------------------------------------------------------------------
-  - id: llm_provider
+  - id: llm_call
     category: resource
-    label: LLM provider endpoint
+    label: LLM Call
     description: >-
-      OpenAI-compatible chat completions endpoint. Carried in the flow
-      YAML as either ``flow.llm`` (shorthand) or ``flow.resources[*]``
-      (canonical list). See src/flow_loader.py::LLMResource.
+      OpenAI-compatible chat completions endpoint. Configure the
+      provider, model, and generation parameters.
+    default_unit: null
+    consumes: []
+    produces: []
+
+  - id: codebook
+    category: resource
+    label: Codebook
+    description: >-
+      Select a codebook from your saved codebooks to use for
+      classification or label extraction.
     default_unit: null
     consumes: []
     produces: []

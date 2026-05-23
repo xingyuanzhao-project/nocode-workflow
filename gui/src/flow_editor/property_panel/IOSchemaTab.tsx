@@ -1,12 +1,8 @@
 /**
- * IO-schema tab of the :mod:`PropertyPanel`.
+ * Output Schema tab of the :mod:`PropertyPanel`.
  *
- * Renders an editable table of the processor's ``io_schema.output``
- * fields. Each row carries a ``field_name``, a ``type`` string
- * (``string`` / ``array`` / ``object`` / ``boolean`` / ``integer``
- * / ``number``), and a ``required`` flag. When the user hasn't
- * overridden the schema, the table starts populated from
- * :attr:`NodeTypeEntry.default_io_schema`.
+ * Editable table of the processor's output fields. Each row carries
+ * a ``field_name``, ``type``, and ``required`` flag.
  */
 
 import { useCallback, useMemo } from "react";
@@ -14,14 +10,11 @@ import { useCallback, useMemo } from "react";
 import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { useGraphStore, type GraphNode } from "@/stores/graph_store";
 
-interface FieldRow {
+interface OutputFieldRow {
   field_name: string;
   type: string;
   required: boolean;
 }
-
-interface OutputFieldRow extends FieldRow {}
-interface InputFieldRow extends FieldRow {}
 
 const PRIMITIVE_TYPE_OPTIONS: readonly string[] = [
   "string",
@@ -31,33 +24,6 @@ const PRIMITIVE_TYPE_OPTIONS: readonly string[] = [
   "integer",
   "number",
 ];
-
-function readInputRows(node: GraphNode): InputFieldRow[] {
-  const io_schema_source =
-    node.data.io_schema && typeof node.data.io_schema === "object"
-      ? node.data.io_schema
-      : node.data.default_io_schema;
-  if (!io_schema_source || typeof io_schema_source !== "object") {
-    return [];
-  }
-  const input_block = (io_schema_source as Record<string, unknown>).input;
-  if (!input_block || typeof input_block !== "object") {
-    return [];
-  }
-  return Object.entries(input_block as Record<string, unknown>).map(
-    ([field_name, field_body]) => {
-      const type_value =
-        field_body &&
-        typeof field_body === "object" &&
-        "type" in (field_body as Record<string, unknown>)
-          ? String((field_body as Record<string, unknown>).type ?? "")
-          : typeof field_body === "string"
-            ? field_body
-            : "";
-      return { field_name, type: type_value, required: false };
-    },
-  );
-}
 
 function readOutputRows(node: GraphNode): OutputFieldRow[] {
   const io_schema_override = node.data.io_schema;
@@ -164,46 +130,12 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
     set_dirty(true);
   }, [node.id, update_node_data, set_dirty]);
 
-  const input_rows = useMemo(() => readInputRows(node), [node]);
-
   return (
     <div className="flex flex-col gap-5">
-      {input_rows.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Input fields
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Fields this step expects from upstream. Read-only view
-            derived from the step type.
-          </p>
-          <table className="text-xs">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="pb-1 font-medium">Field</th>
-                <th className="pb-1 font-medium">Type</th>
-              </tr>
-            </thead>
-            <tbody className="align-top">
-              {input_rows.map((row, row_index) => (
-                <tr key={`input_${row.field_name}_${row_index}`}>
-                  <td className="pr-1 py-0.5 font-mono">{row.field_name}</td>
-                  <td className="pr-1 py-0.5">{row.type}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-
       <div className="flex flex-col gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Output fields
-        </h3>
         <p className="text-xs text-muted-foreground">
-          Edit the step's output schema. Changes here override the
-          registered default; click "Reset to default" to drop the
-          override.
+          Define the fields the LLM should return for each processed
+          item.
         </p>
       </div>
       <table className="text-xs">

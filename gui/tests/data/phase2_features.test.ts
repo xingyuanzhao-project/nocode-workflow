@@ -5,7 +5,6 @@
  * - ``processing_limit`` propagation via the settings store shape.
  * - ``input_file`` alias handling in the Zod ``dataConfigSchema``.
  * - ``costEstimateResponseSchema`` acceptance.
- * - ``passthrough`` field survival in column roles round-trip.
  */
 
 import { describe, expect, it } from "vitest";
@@ -57,7 +56,6 @@ function dropNode(
 function buildMinimalFlowBody(
   input_csv: string,
   processing_limit: number | null = null,
-  passthrough: string[] = [],
 ): FlowBody {
   return flowBodySchema.parse({
     schema_version: 1,
@@ -76,13 +74,6 @@ function buildMinimalFlowBody(
     ],
     data: {
       input_csv,
-      column_roles: {
-        text: "text",
-        entity_id: "victim",
-        doc_id: "index",
-        sort_by: "index",
-        passthrough,
-      },
     },
     taxonomy: "config/taxonomy.json",
     prompts: "config/prompts.json",
@@ -129,12 +120,6 @@ describe("input_file alias handling", () => {
   it("dataConfigSchema accepts input_file and maps it to input_csv", () => {
     const parsed = dataConfigSchema.parse({
       input_file: "data/records.jsonl",
-      column_roles: {
-        text: "text",
-        entity_id: "eid",
-        doc_id: "did",
-        sort_by: "sid",
-      },
     });
     expect(parsed.input_csv).toBe("data/records.jsonl");
   });
@@ -142,12 +127,6 @@ describe("input_file alias handling", () => {
   it("dataConfigSchema still accepts input_csv directly", () => {
     const parsed = dataConfigSchema.parse({
       input_csv: "data/records.csv",
-      column_roles: {
-        text: "text",
-        entity_id: "eid",
-        doc_id: "did",
-        sort_by: "sid",
-      },
     });
     expect(parsed.input_csv).toBe("data/records.csv");
   });
@@ -185,26 +164,6 @@ describe("processing_limit propagation", () => {
   });
 });
 
-describe("passthrough column roles round-trip", () => {
-  it("passthrough array survives graph round-trip", () => {
-    const passthrough = ["region", "date", "source_id"];
-    const body = buildMinimalFlowBody("data/df.csv", null, passthrough);
-    expect(body.data.column_roles.passthrough).toEqual(passthrough);
-
-    const graph = flowConfigToGraph(body);
-    const reassembled = graphToFlowConfig(graph.nodes, graph.edges, {
-      name: graph.flow_metadata.name,
-      schema_version: graph.flow_settings.schema_version,
-    });
-    expect(reassembled.data.column_roles.passthrough).toEqual(passthrough);
-  });
-
-  it("empty passthrough defaults to []", () => {
-    const body = buildMinimalFlowBody("data/df.csv");
-    expect(body.data.column_roles.passthrough).toEqual([]);
-  });
-});
-
 describe("costEstimateResponseSchema", () => {
   it("accepts a valid cost estimate response", () => {
     const parsed = costEstimateResponseSchema.parse({
@@ -236,12 +195,6 @@ describe("palette-built graph with .jsonl file serialises cleanly", () => {
   it("flow body validates when data source points to a .jsonl file", () => {
     const data_source = dropNode(makeEntry("csv_input", "data"), {
       upload: { stored_path: "data/records.jsonl" },
-      column_roles: {
-        text: "body",
-        entity_id: "case_id",
-        doc_id: "doc_id",
-        sort_by: "seq",
-      },
     });
     const processor = dropNode(makeEntry("single_summary", "processor"), {
       unit: "row",

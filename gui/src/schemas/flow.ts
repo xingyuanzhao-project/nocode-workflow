@@ -1,127 +1,27 @@
 /**
- * Zod mirror of server/schemas/flow.py plus src/flow_loader.py.
+ * Zod mirror of the new ``flow:`` document shape.
  *
- * Covers two layers:
+ * The flow editor was rebuilt around an explicit graph: the YAML stores
+ * nodes and edges directly, with no implicit derivation. This module
+ * mirrors :class:`src.flow_loader.FlowDocument` and the per-node /
+ * per-edge entries; it also keeps the HTTP wrapper schemas the rest of
+ * the GUI consumes (save / list / get / validate / cost estimate).
  *
- * - The HTTP DTOs that wrap a flow (save / list / get / validate).
- * - The raw flow body itself (the shape submitted to
- *   ``POST /api/schema/validate`` and persisted under
- *   ``server/data/flows/*.yml``), mirroring
- *   :class:`src.flow_loader.FlowSchema`.
+ * Imports here:
+ *
+ * - ``flowDocumentSchema`` and ``flowBodySchema`` validate the parsed
+ *   YAML before it touches any Zustand store.
+ * - The settings sub-schemas (``asyncConfigSchema``, ``loggingConfigSchema``,
+ *   ``displayConfigSchema``) are shared with
+ *   :class:`@/stores/flow_settings_store`.
+ * - The HTTP wrapper schemas validate every API response shape.
  */
 
 import { z } from "zod";
 
 import { validationErrorItemSchema } from "./errors";
 
-// ---------- Flow body (mirrors src/flow_loader.py) ------------------------
-
-export const llmResourceSchema = z
-  .object({
-    id: z.string().min(1),
-    type: z.literal("llm_provider").default("llm_provider"),
-    provider: z.union([
-      z.literal("local_vllm"),
-      z.literal("openrouter"),
-      z.literal("openai"),
-    ]),
-    model: z.string().min(1),
-    api_base: z.string().url().nullable().optional(),
-    api_key: z.string().nullable().optional(),
-    api_key_env: z.string().nullable().optional(),
-    temperature: z.number().default(0.0),
-    max_tokens_summary: z.number().int().positive().default(1024),
-    max_tokens_classification: z.number().int().positive().default(256),
-  })
-  .refine(
-    (value) => !(value.api_key && value.api_key_env),
-    "A resource declares both api_key and api_key_env; use exactly one.",
-  );
-export type LLMResource = z.infer<typeof llmResourceSchema>;
-
-export const columnRolesSchema = z.object({
-  text: z.string().min(1),
-  entity_id: z.string().min(1),
-  doc_id: z.string().min(1),
-  sort_by: z.string().min(1),
-  passthrough: z.array(z.string()).default([]),
-});
-export type ColumnRoles = z.infer<typeof columnRolesSchema>;
-
-export const dataConfigSchema = z.preprocess(
-  (data) => {
-    if (
-      data != null &&
-      typeof data === "object" &&
-      "input_file" in data &&
-      !("input_csv" in data)
-    ) {
-      const { input_file, ...rest } = data as Record<string, unknown>;
-      return { input_csv: input_file, ...rest };
-    }
-    return data;
-  },
-  z.object({
-    input_csv: z.string().min(1),
-    column_roles: columnRolesSchema,
-  }),
-);
-export type DataConfig = z.infer<typeof dataConfigSchema>;
-
-export const ioSchemaBlockSchema = z
-  .object({
-    input: z.record(z.unknown()).default({}),
-    output: z.record(z.unknown()),
-  })
-  .partial()
-  .refine((value) => value.output !== undefined, "output is required");
-export type IOSchemaBlock = z.infer<typeof ioSchemaBlockSchema>;
-
-export const promptInlineSchema = z
-  .object({
-    instructions: z.array(z.string()).default([]),
-    output_format: z.record(z.unknown()).nullable().optional(),
-  })
-  .passthrough();
-export type PromptInline = z.infer<typeof promptInlineSchema>;
-
-export const promptOverrideSchema = z
-  .object({
-    append: z.array(z.string()).optional(),
-    prepend: z.array(z.string()).optional(),
-    replace: z.array(z.string()).optional(),
-  })
-  .partial();
-export type PromptOverride = z.infer<typeof promptOverrideSchema>;
-
-export const stepConfigSchema = z
-  .object({
-    type: z.string().min(1),
-    unit: unitValueSchemaLikelyImported(),
-    group_by: z.string().nullable().optional(),
-    llm: z.string().nullable().optional(),
-    mode: z.string().nullable().optional(),
-    keys: z.unknown().nullable().optional(),
-    io_schema: ioSchemaBlockSchema.nullable().optional(),
-    prompts_ref: z.string().nullable().optional(),
-    prompt: promptInlineSchema.nullable().optional(),
-    prompt_overrides: promptOverrideSchema.nullable().optional(),
-  })
-  .refine(
-    (value) => !(value.prompt && value.prompts_ref),
-    "A step cannot set both prompt (inline) and prompts_ref (reference).",
-  )
-  .refine(
-    (value) => !(value.prompt_overrides && !value.prompts_ref),
-    "prompt_overrides requires prompts_ref.",
-  );
-export type StepConfig = z.infer<typeof stepConfigSchema>;
-
-function unitValueSchemaLikelyImported() {
-  // `unit` is a string in the flow schema. We keep it narrowly-typed
-  // here rather than importing from node_types.ts to avoid cycles.
-  return z.union([z.literal("row"), z.literal("document"), z.literal("entity")]);
-}
+// ---------- Settings sub-blocks ----------------------------------------
 
 export const asyncConfigSchema = z.object({
   enabled: z.boolean().default(true),
@@ -130,15 +30,6 @@ export const asyncConfigSchema = z.object({
   max_retries: z.number().int().nonnegative().default(5),
 });
 export type AsyncConfig = z.infer<typeof asyncConfigSchema>;
-
-export const outputConfigSchema = z.object({
-  summary_csv: z.string().min(1),
-  results_csv: z.string().nullable().optional(),
-  states_csv: z.string().nullable().optional(),
-  spans_csv: z.string().nullable().optional(),
-  extend: z.boolean().default(false),
-});
-export type OutputConfig = z.infer<typeof outputConfigSchema>;
 
 export const loggingConfigSchema = z.object({
   file: z.string().default("processing.log"),
@@ -153,23 +44,14 @@ export const displayConfigSchema = z.object({
 });
 export type DisplayConfig = z.infer<typeof displayConfigSchema>;
 
-export const flowBodySchema = z.object({
-  schema_version: z.number().int().default(1),
-  name: z.string().min(1),
-  description: z.string().default(""),
-  resources: z.array(llmResourceSchema).min(1),
-  data: dataConfigSchema,
-  taxonomy: z.string().min(1),
-  prompts: z.string().min(1),
-  steps: z.array(stepConfigSchema).min(1),
-  processing_limit: z.number().int().positive().nullable().optional(),
+export const flowSettingsSchema = z.object({
+  processing_limit: z.number().int().positive().nullable().default(null),
   async: asyncConfigSchema.default({
     enabled: true,
     max_concurrent_rows: 15,
     max_concurrent_llm_calls: 50,
     max_retries: 5,
   }),
-  output: outputConfigSchema,
   logging: loggingConfigSchema.default({
     file: "processing.log",
     log_progress: true,
@@ -178,9 +60,78 @@ export const flowBodySchema = z.object({
   }),
   display: displayConfigSchema.default({ use_progress_bar: true }),
 });
-export type FlowBody = z.infer<typeof flowBodySchema>;
+export type FlowSettings = z.infer<typeof flowSettingsSchema>;
 
-// ---------- HTTP wrappers (mirror server/schemas/flow.py) ----------------
+// ---------- Node and edge entries --------------------------------------
+
+const nodePositionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+});
+
+/**
+ * Per-node entry under ``flow.nodes[]``. The type discriminator selects
+ * the typed subclass (see ``model/register.ts``); ``config`` is opaque
+ * here and parsed by the subclass's :meth:`apply_config`.
+ */
+export const nodeEntrySchema = z.object({
+  id: z.string().min(1),
+  type: z.string().min(1),
+  position: nodePositionSchema.optional(),
+  config: z.record(z.unknown()).default({}),
+});
+export type NodeEntry = z.infer<typeof nodeEntrySchema>;
+
+/**
+ * Per-edge entry under ``flow.edges[]``. ``source`` and ``target`` are
+ * node ids; the ``type`` discriminator selects the edge subclass.
+ */
+export const edgeEntrySchema = z.object({
+  type: z.string().min(1),
+  source: z.string().min(1),
+  target: z.string().min(1),
+});
+export type EdgeEntry = z.infer<typeof edgeEntrySchema>;
+
+// ---------- Flow document (top-level) ---------------------------------
+
+/**
+ * The raw flow body as it appears under the ``flow:`` key on disk and as
+ * it is submitted to ``POST /api/schema/validate`` /
+ * ``POST /api/flow`` / ``PUT /api/flow/{id}``.
+ */
+export const flowDocumentSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().default(""),
+  nodes: z.array(nodeEntrySchema),
+  edges: z.array(edgeEntrySchema),
+  settings: flowSettingsSchema.default({
+    processing_limit: null,
+    async: {
+      enabled: true,
+      max_concurrent_rows: 15,
+      max_concurrent_llm_calls: 50,
+      max_retries: 5,
+    },
+    logging: {
+      file: "processing.log",
+      log_progress: true,
+      log_prompts: false,
+      log_response: false,
+    },
+    display: { use_progress_bar: true },
+  }),
+});
+export type FlowDocument = z.infer<typeof flowDocumentSchema>;
+
+/**
+ * Backwards-compatible alias used by the few sites that still import
+ * ``flowBodySchema`` / ``FlowBody`` from the old layout.
+ */
+export const flowBodySchema = flowDocumentSchema;
+export type FlowBody = FlowDocument;
+
+// ---------- HTTP wrappers (mirror server/schemas/flow.py) -------------
 
 export const flowValidationResponseSchema = z.object({
   valid: z.boolean(),
@@ -213,7 +164,7 @@ export type FlowGetResponse = z.infer<typeof flowGetResponseSchema>;
 export const flowListSchema = z.array(flowListItemSchema);
 export type FlowList = z.infer<typeof flowListSchema>;
 
-// ---------- Cost estimate (mirrors server/schemas/flow.py) ----------------
+// ---------- Cost estimate (mirrors server/schemas/flow.py) ------------
 
 export const costEstimateResponseSchema = z.object({
   estimated_tokens: z.number(),

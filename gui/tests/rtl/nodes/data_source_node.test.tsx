@@ -1,8 +1,8 @@
 /**
  * DOM states the DataSource node exposes to the user.
  *
- * The full upload + column-mapping workflow lives in the property
- * panel; this spec only asserts the compact card summary.
+ * The file picker lives in the property panel; this spec only asserts
+ * the compact card summary.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,18 +28,17 @@ function renderCard(data: Record<string, unknown>) {
 }
 
 describe("DataSourceNode card summary", () => {
-  it("shows the empty-state caption when no CSV has been uploaded", () => {
+  it("shows the empty-state caption when no file has been selected", () => {
     const { getByText } = renderCard({
       node_type_id: "csv_input",
       label: "CSV input",
       category: "data",
       upload: null,
-      column_roles: {},
     });
-    expect(getByText(/No CSV uploaded yet/i)).toBeInTheDocument();
+    expect(getByText(/No file selected/i)).toBeInTheDocument();
   });
 
-  it("shows 0 of 4 roles mapped when upload is attached without roles", () => {
+  it("shows the filename when a file is uploaded", () => {
     const { getByText } = renderCard({
       node_type_id: "csv_input",
       label: "CSV input",
@@ -49,38 +48,17 @@ describe("DataSourceNode card summary", () => {
         row_count: 10,
         columns: [{ name: "text" }, { name: "victim" }],
       },
-      column_roles: {},
     });
-    expect(getByText(/0\/4 roles mapped/i)).toBeInTheDocument();
+    expect(getByText("df.csv")).toBeInTheDocument();
   });
 
-  it("shows 4 of 4 roles mapped when the user finished the mapping", () => {
+  it("shows the filename when selected_file is set", () => {
     const { getByText } = renderCard({
       node_type_id: "csv_input",
       label: "CSV input",
       category: "data",
-      upload: {
-        filename: "df.csv",
-        row_count: 10,
-        columns: [{ name: "text" }],
-      },
-      column_roles: {
-        text: "text",
-        entity_id: "victim",
-        doc_id: "index",
-        sort_by: "index",
-      },
+      selected_file: "data/df_text_by_report.csv",
     });
-    expect(getByText(/4\/4 roles mapped/i)).toBeInTheDocument();
-  });
-
-  it("does not crash when column_roles is undefined (regression guard)", () => {
-    const { container } = renderCard({
-      node_type_id: "csv_input",
-      label: "CSV input",
-      category: "data",
-      upload: null,
-    });
-    expect(container.textContent).toContain("CSV input");
+    expect(getByText("df_text_by_report.csv")).toBeInTheDocument();
   });
 });

@@ -4,8 +4,8 @@ The GUI uploads a data file (CSV, JSON, or JSONL) through
 ``POST /api/files/upload``. This service validates the size, parses
 the file into a DataFrame, writes the raw bytes to
 :attr:`server.storage.paths.ServerPaths.uploads_dir`, and returns a
-small DTO describing the columns so the GUI can let the user pick which
-columns map to the flow's :class:`src.flow_loader.ColumnRoles` fields.
+small DTO describing the columns so the GUI can display column
+information.
 
 Contents and relationships
 --------------------------

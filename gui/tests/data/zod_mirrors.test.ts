@@ -95,13 +95,6 @@ describe("flow DTOs", () => {
         ],
         data: {
           input_csv: "data/df.csv",
-          column_roles: {
-            text: "text",
-            entity_id: "victim",
-            doc_id: "index",
-            sort_by: "index",
-            passthrough: [],
-          },
         },
         taxonomy: "config/taxonomy.json",
         prompts: "config/prompts.json",

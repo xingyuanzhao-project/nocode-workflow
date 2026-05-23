@@ -212,13 +212,22 @@ def estimate_cost(request: CostEstimateRequest) -> CostEstimateResponse:
         message.
     """
     flow_block = request.flow
-    resources = flow_block.get("resources", [])
+    nodes = flow_block.get("nodes", []) or []
     model_name = "unknown"
-    if resources:
-        model_name = resources[0].get("model", "unknown")
-
-    steps = flow_block.get("steps", [])
-    step_count = len(steps)
+    step_count = 0
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_type = node.get("type")
+        node_config = node.get("config") or {}
+        if not isinstance(node_config, dict):
+            node_config = {}
+        if node_type == "llm_call" and model_name == "unknown":
+            candidate_model = node_config.get("model")
+            if isinstance(candidate_model, str) and candidate_model:
+                model_name = candidate_model
+        elif node_type == "processor":
+            step_count += 1
 
     estimated_input_tokens = request.total_characters // CHARS_PER_TOKEN
     total_tokens = estimated_input_tokens * max(step_count, 1)

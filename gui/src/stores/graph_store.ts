@@ -1,25 +1,33 @@
 /**
  * Zustand store for the React Flow graph editor.
  *
- * Holds the canvas nodes, edges, and the identifier of the currently
- * selected node. The entire slice is wrapped in the ``zundo``
- * temporal middleware so the user can undo/redo edits via
- * ``useGraphStore.temporal.getState().undo()`` / ``.redo()``.
+ * The flow editor was rebuilt around an explicit graph: the store now
+ * holds typed :class:`BaseNode` and :class:`BaseEdge` instances as the
+ * authoritative state, and exposes the matching React Flow ``Node[]`` /
+ * ``Edge[]`` shapes as derived fields the canvas + property panel read.
  *
- * The store is intentionally thin: the React Flow handlers
- * (``onNodesChange``, ``onEdgesChange``, ``onConnect``) call the
- * setters below, and the custom node components read/write their own
- * ``data`` payload via :func:`updateNodeData`.
+ * Mutations always go through the typed objects:
+ *
+ * - Palette drop → :meth:`BaseNode.from_palette` → ``add_node``.
+ * - User draws a wire → :meth:`BaseEdge.from_connection` → ``on_connect``.
+ * - Property panel form change → ``update_node_data`` → typed
+ *   :meth:`BaseNode.patch_config`.
+ * - React Flow position/remove change → translated into typed
+ *   mutations by ``on_nodes_change`` / ``on_edges_change``.
+ *
+ * The temporal middleware (zundo) wraps the slice so undo/redo restores
+ * past typed states; equality uses each typed object's serialised form
+ * so class identity does not skew the comparison.
  */
 
 import type {
   Connection,
-  Edge,
+  Edge as ReactFlowEdge,
   EdgeChange,
-  Node,
+  Node as ReactFlowNode,
   NodeChange,
 } from "reactflow";
-import { addEdge, applyEdgeChanges, applyNodeChanges } from "reactflow";
+import { applyNodeChanges } from "reactflow";
 import { temporal, type TemporalState } from "zundo";
 import {
   create,
@@ -28,26 +36,37 @@ import {
   type UseBoundStore,
 } from "zustand";
 
+import { BaseEdge } from "@/flow_editor/model/base_edge";
+import { BaseNode } from "@/flow_editor/model/base_node";
+
+import "@/flow_editor/model/register";
+
 /**
  * A React Flow node carrying one of our domain-specific ``data``
  * payloads. ``data`` is kept as an open record here and narrowed by
  * the per-node-type component when it reads its own fields.
  */
-export type GraphNode = Node<Record<string, unknown>>;
+export type GraphNode = ReactFlowNode<Record<string, unknown>>;
 
 /** A React Flow edge; the default ``data`` shape is sufficient. */
-export type GraphEdge = Edge;
+export type GraphEdge = ReactFlowEdge;
 
 export interface GraphState {
-  /** Canvas nodes in insertion order. */
+  /** Typed nodes — authoritative source of truth. */
+  typed_nodes: BaseNode[];
+  /** Typed edges — authoritative source of truth. */
+  typed_edges: BaseEdge[];
+
+  /** React Flow projection of :attr:`typed_nodes`. Kept in sync on every mutation. */
   nodes: GraphNode[];
-  /** Canvas edges in insertion order. */
+  /** React Flow projection of :attr:`typed_edges`. Kept in sync on every mutation. */
   edges: GraphEdge[];
+
   /** Id of the node whose Property Panel is currently visible. */
   selected_node_id: string | null;
 
-  /** Replace the full graph at once (used by the codec on load). */
-  set_graph: (nodes: GraphNode[], edges: GraphEdge[]) => void;
+  /** Replace the full graph at once (used by the deserialiser on load). */
+  set_graph: (typed_nodes: BaseNode[], typed_edges: BaseEdge[]) => void;
   /** Reset to an empty canvas. */
   clear_graph: () => void;
 
@@ -58,78 +77,148 @@ export interface GraphState {
   /** React Flow ``onConnect`` handler. */
   on_connect: (connection: Connection) => void;
 
-  /** Append one node to the graph (used when dragging from the palette). */
-  add_node: (node: GraphNode) => void;
-  /** Merge a partial ``data`` patch into one node. */
+  /** Append one typed node to the graph (used when dragging from the palette). */
+  add_typed_node: (node: BaseNode) => void;
+  /** Append one typed edge to the graph (used by tests and by the deserialiser). */
+  add_typed_edge: (edge: BaseEdge) => void;
+
+  /** Merge a partial config patch into one typed node and rebuild its data payload. */
   update_node_data: (
     node_id: string,
     data_patch: Record<string, unknown>,
   ) => void;
 
+  /** Look up a typed node by id. */
+  get_typed_node: (node_id: string) => BaseNode | null;
+
   /** Select the node whose Property Panel should be visible. */
   set_selected_node_id: (node_id: string | null) => void;
 }
 
-/**
- * Domain-aware overrides for zundo's default change detection.
- *
- * React Flow fires one change event per mouse-move while dragging,
- * which would otherwise flood the undo stack. Excluding the
- * ``position`` and ``selected`` fields from the tracked diff means
- * drag gestures do not create undo-stack entries; edits that matter
- * (add/remove nodes, add/remove edges, update ``data``) still do.
- *
- * ``width`` and ``height`` are written onto each node by React Flow's
- * internal ``ResizeObserver`` after it measures the rendered DOM.
- * They must also be ignored here, otherwise every ``undo()`` call
- * restores a node with no measured size, the ResizeObserver fires,
- * the store sees a "new" state, zundo clears ``futureStates``, and
- * the undo stack becomes undrainable. See tests/e2e/07_undo_redo.
- */
-const TEMPORAL_EQUALITY_IGNORED_FIELDS: ReadonlySet<string> = new Set([
-  "position",
-  "positionAbsolute",
-  "selected",
-  "dragging",
-  "width",
-  "height",
-]);
-
-function stripIgnoredNodeFields(node: GraphNode): Record<string, unknown> {
-  const serialised: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(node)) {
-    if (TEMPORAL_EQUALITY_IGNORED_FIELDS.has(key)) {
-      continue;
-    }
-    serialised[key] = value;
-  }
-  return serialised;
+function project_react_flow_nodes(typed_nodes: BaseNode[]): GraphNode[] {
+  return typed_nodes.map((typed_node) => typed_node.to_react_flow_node());
 }
 
-function areGraphStatesEquivalent(
+function project_react_flow_edges(typed_edges: BaseEdge[]): GraphEdge[] {
+  return typed_edges.map((typed_edge) => typed_edge.to_react_flow_edge());
+}
+
+/**
+ * Apply React Flow ``NodeChange[]`` events back onto the typed-node
+ * array. We only translate the change kinds that affect the canonical
+ * model:
+ *
+ * - ``position`` → mutate ``typed_node.position``.
+ * - ``remove`` → drop the typed node and any incident typed edges.
+ *
+ * Everything else (``select``, ``dimensions``, ``add``) is handled at
+ * the React Flow projection layer and then re-projected.
+ */
+function apply_changes_to_typed_nodes(
+  typed_nodes: BaseNode[],
+  changes: NodeChange[],
+): {
+  typed_nodes: BaseNode[];
+  removed_ids: Set<string>;
+} {
+  const removed_ids = new Set<string>();
+  for (const change of changes) {
+    if (change.type === "remove") {
+      removed_ids.add(change.id);
+    } else if (change.type === "position" && change.position) {
+      const target = typed_nodes.find(
+        (candidate) => candidate.id === change.id,
+      );
+      if (target) {
+        target.position = { x: change.position.x, y: change.position.y };
+      }
+    }
+  }
+  if (removed_ids.size === 0) {
+    return { typed_nodes, removed_ids };
+  }
+  return {
+    typed_nodes: typed_nodes.filter((node) => !removed_ids.has(node.id)),
+    removed_ids,
+  };
+}
+
+function apply_changes_to_typed_edges(
+  typed_edges: BaseEdge[],
+  changes: EdgeChange[],
+  removed_node_ids: Set<string>,
+): BaseEdge[] {
+  const removed_edge_ids = new Set<string>();
+  for (const change of changes) {
+    if (change.type === "remove") {
+      removed_edge_ids.add(change.id);
+    }
+  }
+  if (removed_edge_ids.size === 0 && removed_node_ids.size === 0) {
+    return typed_edges;
+  }
+  return typed_edges.filter((edge) => {
+    if (removed_edge_ids.has(edge.id)) {
+      return false;
+    }
+    if (
+      removed_node_ids.has(edge.source_node_id) ||
+      removed_node_ids.has(edge.target_node_id)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Domain-aware equality for the temporal middleware.
+ *
+ * React Flow fires one change event per mouse-move while dragging, which
+ * would otherwise flood the undo stack. Excluding ``position`` from the
+ * tracked diff means drag gestures do not create undo entries; edits
+ * that matter (add/remove nodes, add/remove edges, update config) still
+ * do.
+ */
+const TYPED_EQUALITY_IGNORE_DRAG = true;
+
+function summarise_typed_node(node: BaseNode): string {
+  const config_json = JSON.stringify(node.emit_config());
+  const position_part = TYPED_EQUALITY_IGNORE_DRAG
+    ? ""
+    : `:${node.position.x},${node.position.y}`;
+  return `${node.id}:${node.node_type}${position_part}:${config_json}`;
+}
+
+function summarise_typed_edge(edge: BaseEdge): string {
+  return `${edge.edge_type}:${edge.source_node_id}:${edge.target_node_id}`;
+}
+
+function are_graph_states_equivalent(
   previous: GraphState,
   next: GraphState,
 ): boolean {
   if (previous.selected_node_id !== next.selected_node_id) {
     return false;
   }
-  if (previous.nodes.length !== next.nodes.length) {
+  if (previous.typed_nodes.length !== next.typed_nodes.length) {
     return false;
   }
-  if (previous.edges.length !== next.edges.length) {
+  if (previous.typed_edges.length !== next.typed_edges.length) {
     return false;
   }
-  for (let index = 0; index < previous.nodes.length; index += 1) {
-    const prev_stripped = stripIgnoredNodeFields(previous.nodes[index]!);
-    const next_stripped = stripIgnoredNodeFields(next.nodes[index]!);
-    if (JSON.stringify(prev_stripped) !== JSON.stringify(next_stripped)) {
+  for (let index = 0; index < previous.typed_nodes.length; index += 1) {
+    if (
+      summarise_typed_node(previous.typed_nodes[index]!) !==
+      summarise_typed_node(next.typed_nodes[index]!)
+    ) {
       return false;
     }
   }
-  for (let index = 0; index < previous.edges.length; index += 1) {
+  for (let index = 0; index < previous.typed_edges.length; index += 1) {
     if (
-      JSON.stringify(previous.edges[index]) !==
-      JSON.stringify(next.edges[index])
+      summarise_typed_edge(previous.typed_edges[index]!) !==
+      summarise_typed_edge(next.typed_edges[index]!)
     ) {
       return false;
     }
@@ -140,53 +229,155 @@ function areGraphStatesEquivalent(
 /**
  * Zustand + zundo store for the React Flow canvas.
  *
- * Exposes the state, the React Flow change handlers, and a handful
- * of domain-specific helpers (``add_node``, ``update_node_data``).
- * Undo/redo is available under ``useGraphStore.temporal``.
+ * Exposes typed state, the React Flow projection, the React Flow change
+ * handlers, and a handful of domain-specific helpers (``add_typed_node``,
+ * ``update_node_data``). Undo/redo is available under
+ * ``useGraphStore.temporal``.
  */
 export const useGraphStore: UseBoundStore<StoreApi<GraphState>> & {
   temporal: StoreApi<TemporalState<GraphState>>;
 } = create<GraphState>()(
   temporal(
-    (set) => ({
+    (set, get) => ({
+      typed_nodes: [],
+      typed_edges: [],
       nodes: [],
       edges: [],
       selected_node_id: null,
 
-      set_graph: (nodes, edges) => set({ nodes, edges }),
+      set_graph: (typed_nodes, typed_edges) =>
+        set({
+          typed_nodes,
+          typed_edges,
+          nodes: project_react_flow_nodes(typed_nodes),
+          edges: project_react_flow_edges(typed_edges),
+        }),
+
       clear_graph: () =>
-        set({ nodes: [], edges: [], selected_node_id: null }),
+        set({
+          typed_nodes: [],
+          typed_edges: [],
+          nodes: [],
+          edges: [],
+          selected_node_id: null,
+        }),
 
       on_nodes_change: (changes) =>
-        set((state) => ({
-          nodes: applyNodeChanges(changes, state.nodes) as GraphNode[],
-        })),
-      on_edges_change: (changes) =>
-        set((state) => ({
-          edges: applyEdgeChanges(changes, state.edges),
-        })),
-      on_connect: (connection) =>
-        set((state) => ({
-          edges: addEdge(connection, state.edges),
-        })),
+        set((state) => {
+          const { typed_nodes: next_typed_nodes, removed_ids } =
+            apply_changes_to_typed_nodes(state.typed_nodes, changes);
+          const next_typed_edges =
+            removed_ids.size > 0
+              ? state.typed_edges.filter(
+                  (edge) =>
+                    !removed_ids.has(edge.source_node_id) &&
+                    !removed_ids.has(edge.target_node_id),
+                )
+              : state.typed_edges;
+          return {
+            typed_nodes: next_typed_nodes,
+            typed_edges: next_typed_edges,
+            nodes: applyNodeChanges(changes, state.nodes) as GraphNode[],
+            edges:
+              next_typed_edges === state.typed_edges
+                ? state.edges
+                : project_react_flow_edges(next_typed_edges),
+          };
+        }),
 
-      add_node: (node) =>
-        set((state) => ({
-          nodes: [...state.nodes, node],
-        })),
+      on_edges_change: (changes) =>
+        set((state) => {
+          const next_typed_edges = apply_changes_to_typed_edges(
+            state.typed_edges,
+            changes,
+            new Set(),
+          );
+          return {
+            typed_edges: next_typed_edges,
+            edges: project_react_flow_edges(next_typed_edges),
+          };
+        }),
+
+      on_connect: (connection) =>
+        set((state) => {
+          const new_edge = BaseEdge.from_connection(connection);
+          if (new_edge === null) {
+            return {};
+          }
+          const source_node = state.typed_nodes.find(
+            (candidate) => candidate.id === new_edge.source_node_id,
+          );
+          const target_node = state.typed_nodes.find(
+            (candidate) => candidate.id === new_edge.target_node_id,
+          );
+          if (!source_node || !target_node) {
+            return {};
+          }
+          const error_message = new_edge.validate(source_node, target_node);
+          if (error_message !== null) {
+            console.warn(error_message);
+            return {};
+          }
+          const duplicate_index = state.typed_edges.findIndex(
+            (existing) => existing.id === new_edge.id,
+          );
+          const next_typed_edges =
+            duplicate_index === -1
+              ? [...state.typed_edges, new_edge]
+              : state.typed_edges;
+          return {
+            typed_edges: next_typed_edges,
+            edges: project_react_flow_edges(next_typed_edges),
+          };
+        }),
+
+      add_typed_node: (node) =>
+        set((state) => {
+          const next_typed_nodes = [...state.typed_nodes, node];
+          return {
+            typed_nodes: next_typed_nodes,
+            nodes: project_react_flow_nodes(next_typed_nodes),
+          };
+        }),
+
+      add_typed_edge: (edge) =>
+        set((state) => {
+          const next_typed_edges = [...state.typed_edges, edge];
+          return {
+            typed_edges: next_typed_edges,
+            edges: project_react_flow_edges(next_typed_edges),
+          };
+        }),
+
       update_node_data: (node_id, data_patch) =>
-        set((state) => ({
-          nodes: state.nodes.map((node) =>
-            node.id === node_id
-              ? { ...node, data: { ...node.data, ...data_patch } }
-              : node,
-          ),
-        })),
+        set((state) => {
+          const target = state.typed_nodes.find(
+            (candidate) => candidate.id === node_id,
+          );
+          if (!target) {
+            return {};
+          }
+          target.patch_config(data_patch);
+          const next_typed_nodes = [...state.typed_nodes];
+          return {
+            typed_nodes: next_typed_nodes,
+            nodes: project_react_flow_nodes(next_typed_nodes),
+          };
+        }),
+
+      get_typed_node: (node_id) => {
+        const state = get();
+        return (
+          state.typed_nodes.find(
+            (candidate) => candidate.id === node_id,
+          ) ?? null
+        );
+      },
 
       set_selected_node_id: (node_id) => set({ selected_node_id: node_id }),
     }),
     {
-      equality: areGraphStatesEquivalent,
+      equality: are_graph_states_equivalent,
       limit: 100,
     },
   ),
@@ -196,10 +387,6 @@ export const useGraphStore: UseBoundStore<StoreApi<GraphState>> & {
 
 /**
  * Convenience hook for the undo/redo controls.
- *
- * Subscribes to the temporal store so buttons wired to ``undo`` /
- * ``redo`` re-render when the ``pastStates`` / ``futureStates`` arrays
- * change.
  */
 export function useGraphHistory(): {
   undo: () => void;

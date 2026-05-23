@@ -26,6 +26,16 @@ export interface NodeCardProps {
   has_input_handle?: boolean;
   /** Toggle the output (source) handle on the card's right edge. */
   has_output_handle?: boolean;
+  /**
+   * Add a source handle at the card's top edge (id: ``llm-out``).
+   * Used by processor nodes for the processor → LLM Call edge.
+   */
+  has_top_handle?: boolean;
+  /**
+   * Add a source handle at the card's bottom edge (id: ``cb-out``).
+   * Used by processor nodes for the processor → Codebook edge.
+   */
+  has_bottom_handle?: boolean;
   /** Optional extra class names on the outer card wrapper. */
   class_name?: string;
 }
@@ -42,6 +52,8 @@ export function NodeCard({
   selected = false,
   has_input_handle = true,
   has_output_handle = true,
+  has_top_handle = false,
+  has_bottom_handle = false,
   class_name,
 }: NodeCardProps): JSX.Element {
   return (
@@ -56,20 +68,37 @@ export function NodeCard({
         {category}
       </div>
       <div className="text-sm font-medium">{title}</div>
-      <div className="text-[0.7rem] text-muted-foreground">{type_id}</div>
       {children ? <div className="mt-2 text-xs">{children}</div> : null}
       {has_input_handle ? (
         <Handle
           type="target"
+          id="data-in"
           position={Position.Left}
-          className="!bg-foreground"
+          className="!bg-foreground !w-3 !h-3"
         />
       ) : null}
       {has_output_handle ? (
         <Handle
           type="source"
+          id="data-out"
           position={Position.Right}
-          className="!bg-foreground"
+          className="!bg-foreground !w-3 !h-3"
+        />
+      ) : null}
+      {has_top_handle ? (
+        <Handle
+          type="source"
+          id="llm-out"
+          position={Position.Top}
+          className="!bg-foreground !w-3 !h-3"
+        />
+      ) : null}
+      {has_bottom_handle ? (
+        <Handle
+          type="source"
+          id="cb-out"
+          position={Position.Bottom}
+          className="!bg-foreground !w-3 !h-3"
         />
       ) : null}
     </div>

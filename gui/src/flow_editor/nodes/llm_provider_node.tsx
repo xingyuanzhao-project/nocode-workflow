@@ -1,9 +1,13 @@
 /**
- * Canvas node for one :class:`src.flow_loader.LLMResource`.
+ * Canvas node for one :class:`LLMCallNode` typed model.
  *
  * Exposes a compact provider / model / resource-id summary. The
  * property panel lets the user edit temperature, max tokens, and
  * the API-key environment variable name.
+ *
+ * Renders one default target handle on the left edge (the LLMCall
+ * edge's target endpoint) and no source handle — an LLM Call is a
+ * leaf consumer in the graph.
  */
 
 import type { NodeProps } from "reactflow";
@@ -11,7 +15,7 @@ import type { NodeProps } from "reactflow";
 import { NodeCard } from "./node_card";
 
 export interface LLMProviderNodeData {
-  node_type_id: "llm_provider";
+  node_type_id: "llm_call";
   label: string;
   category: "resource";
   /** Resource id (defaults to ``"default"``). */
@@ -22,10 +26,8 @@ export interface LLMProviderNodeData {
   model: string;
   /** Temperature, shown as a small readout. */
   temperature: number;
-  /** max_tokens for summary calls. */
-  max_tokens_summary: number;
-  /** max_tokens for classification calls. */
-  max_tokens_classification: number;
+  /** Single ``max_tokens`` cap for every call this LLM resource serves. */
+  max_tokens: number;
 }
 
 export function LLMProviderNode({
@@ -38,7 +40,8 @@ export function LLMProviderNode({
       title={data.label}
       type_id={data.node_type_id}
       selected={selected}
-      has_input_handle={false}
+      has_input_handle={true}
+      has_output_handle={false}
     >
       <div className="flex flex-col gap-0.5">
         <span>
@@ -54,8 +57,7 @@ export function LLMProviderNode({
           {data.model || "— no model —"}
         </span>
         <span className="text-muted-foreground">
-          T={data.temperature.toFixed(2)} · summary={data.max_tokens_summary} ·
-          class={data.max_tokens_classification}
+          T={(data.temperature ?? 0).toFixed(2)} · max_tokens={data.max_tokens ?? 1024}
         </span>
       </div>
     </NodeCard>

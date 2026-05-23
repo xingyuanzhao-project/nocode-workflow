@@ -1,9 +1,9 @@
 /**
  * Canvas node for the output-CSV sink.
  *
- * Summarises which artifact CSVs the run will emit (summary, results,
- * states, spans) and whether ``extend`` is enabled. The codec
- * translates this node into :class:`src.flow_loader.OutputConfig`.
+ * Supports both the new model (output_path + artifact_paths) and the
+ * legacy model (summary_csv / results_csv / states_csv / spans_csv).
+ * The codec translates this node into :class:`src.flow_loader.OutputConfig`.
  */
 
 import type { NodeProps } from "reactflow";
@@ -11,22 +11,21 @@ import type { NodeProps } from "reactflow";
 import { NodeCard } from "./node_card";
 
 export interface CSVOutputNodeData {
-  node_type_id: "csv_output";
+  node_type_id: string;
   label: string;
   category: "data";
-  /** Relative POSIX path of the summary CSV (required). */
-  summary_csv: string;
-  /** Optional relative POSIX path of results.csv. */
-  results_csv: string | null;
-  /** Optional relative POSIX path of states.csv. */
-  states_csv: string | null;
-  /** Optional relative POSIX path of spans.csv. */
-  spans_csv: string | null;
-  /** Append-to-existing flag. */
-  extend: boolean;
+  // New model
+  output_path?: string;
+  artifact_paths?: string[];
+  // Old model
+  summary_csv?: string;
+  results_csv?: string | null;
+  states_csv?: string | null;
+  spans_csv?: string | null;
+  extend?: boolean;
 }
 
-const ARTIFACT_FIELD_LABELS: readonly { key: keyof CSVOutputNodeData; label: string }[] = [
+const ARTIFACT_FIELD_LABELS: readonly { key: string; label: string }[] = [
   { key: "summary_csv", label: "summary.csv" },
   { key: "results_csv", label: "results.csv" },
   { key: "states_csv", label: "states.csv" },
@@ -37,10 +36,8 @@ export function CSVOutputNode({
   data,
   selected,
 }: NodeProps<CSVOutputNodeData>): JSX.Element {
-  const enabled_count = ARTIFACT_FIELD_LABELS.filter((field) => {
-    const value = data[field.key];
-    return typeof value === "string" && value.length > 0;
-  }).length;
+  const has_new_model = typeof data.output_path === "string";
+
   return (
     <NodeCard
       category="Output"
@@ -50,9 +47,27 @@ export function CSVOutputNode({
       has_output_handle={false}
     >
       <div className="flex flex-col gap-0.5">
-        <span>
-          {enabled_count}/{ARTIFACT_FIELD_LABELS.length} artifacts enabled
-        </span>
+        {has_new_model ? (
+          <>
+            <span className="truncate font-mono" title={data.output_path}>
+              {data.output_path || "— path unset —"}
+            </span>
+            {(data.artifact_paths?.length ?? 0) > 0 && (
+              <span className="text-muted-foreground">
+                +{data.artifact_paths!.length} artifact{data.artifact_paths!.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <span>
+              {ARTIFACT_FIELD_LABELS.filter((f) => {
+                const v = (data as Record<string, unknown>)[f.key];
+                return typeof v === "string" && (v as string).length > 0;
+              }).length}/{ARTIFACT_FIELD_LABELS.length} artifacts enabled
+            </span>
+          </>
+        )}
         <span className="text-muted-foreground">
           {data.extend ? "Append (extend=true)" : "Overwrite"}
         </span>

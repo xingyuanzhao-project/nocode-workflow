@@ -18,12 +18,10 @@ from src.flow_loader import (
     PROVIDER_VALUES,
     UNIT_VALUES,
     VALID_ADJACENT_UNIT_TRANSITIONS,
-    ColumnRoles,
     DataConfig,
     FlowConfig,
     FlowSchema,
     LLMResource,
-    LLMShorthand,
     LoggingConfig,
     OutputConfig,
     StepConfig,
@@ -71,12 +69,6 @@ def _minimal_valid_flow_body() -> Dict[str, Any]:
         ],
         "data": {
             "input_csv": "data/df_text_by_report.csv",
-            "column_roles": {
-                "text": "text",
-                "entity_id": "victim",
-                "doc_id": "index",
-                "sort_by": "index",
-            },
         },
         "taxonomy": "config/taxonomy.json",
         "prompts": "config/prompts.json",
@@ -148,42 +140,18 @@ class TestLLMResourceValidators:
 
 
 # ---------------------------------------------------------------------
-# ColumnRoles
-# ---------------------------------------------------------------------
-
-
-class TestColumnRoles:
-    def test_accepts_every_required_field(self) -> None:
-        roles = ColumnRoles(text="t", entity_id="e", doc_id="d", sort_by="s")
-        assert roles.passthrough == []
-
-    @pytest.mark.parametrize("missing", ["text", "entity_id", "doc_id", "sort_by"])
-    def test_rejects_missing_required_field(self, missing: str) -> None:
-        body = {"text": "t", "entity_id": "e", "doc_id": "d", "sort_by": "s"}
-        del body[missing]
-        with pytest.raises(ValidationError):
-            ColumnRoles(**body)
-
-
-# ---------------------------------------------------------------------
 # DataConfig.validate_input_csv_path
 # ---------------------------------------------------------------------
 
 
 class TestDataConfigInputCsvPath:
     def test_accepts_relative_posix_path(self) -> None:
-        config = DataConfig(
-            input_csv="data/df.csv",
-            column_roles=ColumnRoles(text="t", entity_id="e", doc_id="d", sort_by="s"),
-        )
+        config = DataConfig(input_csv="data/df.csv")
         assert config.input_csv == "data/df.csv"
 
     def test_rejects_absolute_path(self) -> None:
         with pytest.raises(ValidationError, match="absolute"):
-            DataConfig(
-                input_csv="/absolute.csv",
-                column_roles=ColumnRoles(text="t", entity_id="e", doc_id="d", sort_by="s"),
-            )
+            DataConfig(input_csv="/absolute.csv")
 
 
 # ---------------------------------------------------------------------
@@ -391,60 +359,14 @@ def _step_type_for_unit(unit_value: str) -> str:
 
 
 # ---------------------------------------------------------------------
-# FlowSchema.load_from_path — shorthand promotion and mutex
+# FlowSchema.load_from_path — new graph format tests
 # ---------------------------------------------------------------------
 
 
-class TestFlowSchemaShorthand:
-    def test_rejects_both_llm_and_resources(self, tmp_path: Path) -> None:
-        body = _minimal_valid_flow_body()
-        body["llm"] = {
-            "provider": "openrouter",
-            "model": "m",
-            "api_key_env": "OPENROUTER_API_KEY",
-        }
-        document = {"flow": body}
-        yaml_path = tmp_path / "dual.yml"
-        yaml_path.write_text(yaml.safe_dump(document), encoding="utf-8")
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            FlowSchema.load_from_path(yaml_path)
-
-    def test_shorthand_promoted_to_default_resource(self, tmp_path: Path) -> None:
-        body = _minimal_valid_flow_body()
-        del body["resources"]
-        body["llm"] = {
-            "provider": "openrouter",
-            "model": "meta-llama/llama-3.1-70b-instruct",
-            "api_key_env": "OPENROUTER_API_KEY",
-        }
-        document = {"flow": body}
-        yaml_path = tmp_path / "shorthand.yml"
-        yaml_path.write_text(yaml.safe_dump(document), encoding="utf-8")
-        schema = FlowSchema.load_from_path(yaml_path)
-        assert len(schema.flow.resources) == 1
-        assert schema.flow.resources[0].id == "default"
-
+class TestFlowSchemaLoadFromPath:
     def test_load_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             FlowSchema.load_from_path(tmp_path / "missing.yml")
-
-
-class TestLLMShorthandPromotion:
-    def test_shorthand_to_resource_copies_every_field(self) -> None:
-        shorthand = LLMShorthand(
-            provider="openai",
-            model="gpt-4o-mini",
-            api_base="https://api.openai.com/v1",
-            api_key_env="OPENAI_API_KEY",
-            temperature=0.5,
-            max_tokens_summary=2048,
-            max_tokens_classification=512,
-        )
-        resource = shorthand.to_resource()
-        assert resource.id == "default"
-        assert resource.type == "llm_provider"
-        assert resource.provider == "openai"
-        assert resource.temperature == 0.5
 
 
 # ---------------------------------------------------------------------

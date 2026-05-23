@@ -9,6 +9,15 @@ orchestration — wiring classes together according to the flow YAML,
 resolving step-level overrides against the node-type registry, and
 driving the processor loops.
 
+The flow YAML now stores an explicit graph (``flow.nodes[]`` /
+``flow.edges[]``); :class:`src.flow_loader.FlowSchema.load_from_path`
+parses the graph, runs the topological sort over feedforward edges,
+resolves each processor's ``llm_call`` and ``codebook_inquiry`` edges
+into the matching resource configs, and assembles a runtime
+:class:`src.flow_loader.FlowConfig` exposed as ``schema.flow``. This
+module reads ``schema.flow`` exactly as it always has — the graph
+compilation is invisible to the runtime path.
+
 Contents and relationships
 --------------------------
 
@@ -567,9 +576,26 @@ class FlowRunner:
         self.resume = resume
 
         self._flow_prompts_path: str = schema.flow.prompts
+        self._column_hints = self._read_column_hints()
 
         output_dir = Path(schema.flow.output.summary_csv).parent
         self._checkpoint = _Checkpoint(output_dir, schema.flow.name)
+
+    def _read_column_hints(self) -> Dict[str, Any]:
+        """Read optional column hints from the data input node's raw config.
+
+        Returns a plain dict that callers query with ``.get(key, default)``.
+        Existing YAML flows that still carry a ``column_roles`` block in
+        their ``csv_input`` / ``json_input`` node config will have their
+        mappings honoured.  New flows without one fall back to sensible
+        column-name defaults at every call site.
+        """
+        for node in self.schema.document.nodes:
+            if node.type in {"csv_input", "json_input"}:
+                raw = node.config.get("column_roles", {})
+                if isinstance(raw, dict):
+                    return {k: v for k, v in raw.items()}
+        return {}
 
     def run(self) -> None:
         """Execute the flow synchronously.
@@ -590,7 +616,6 @@ class FlowRunner:
 
         Raises:
             FileNotFoundError: If the input CSV does not exist.
-            KeyError: If a role column is missing from the CSV.
             NotImplementedError: If the flow declares an unimplemented step.
         """
         flow = self.schema.flow
@@ -601,7 +626,7 @@ class FlowRunner:
             else next(iter(self.resolved_resources.values())).model
         )
 
-        column_roles = flow.data.column_roles
+        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
         has_entity_grouping = any(
             s.type
             in {
@@ -615,14 +640,14 @@ class FlowRunner:
         )
 
         if flow.processing_limit is not None:
-            if has_entity_grouping:
-                entity_ids = input_df[column_roles.entity_id].unique()[: flow.processing_limit]
-                input_df = input_df[input_df[column_roles.entity_id].isin(entity_ids)]
+            if has_entity_grouping and entity_id_col in input_df.columns:
+                entity_ids = input_df[entity_id_col].unique()[: flow.processing_limit]
+                input_df = input_df[input_df[entity_id_col].isin(entity_ids)]
             else:
                 input_df = input_df.head(flow.processing_limit)
             self.logger.info(
                 "Processing limit applied: %d %s",
-                len(input_df[column_roles.entity_id].unique()) if has_entity_grouping else len(input_df),
+                len(input_df[entity_id_col].unique()) if has_entity_grouping and entity_id_col in input_df.columns else len(input_df),
                 "entities" if has_entity_grouping else "rows",
             )
 
@@ -701,7 +726,7 @@ class FlowRunner:
         )
 
     def _load_input_data(self) -> pd.DataFrame:
-        """Load the input data file and validate that every role column exists.
+        """Load the input data file.
 
         Dispatches to the appropriate pandas reader based on file extension:
         ``.csv`` uses :func:`pandas.read_csv`, ``.json`` uses
@@ -709,12 +734,10 @@ class FlowRunner:
         uses :func:`pandas.read_json` with ``lines=True``.
 
         Returns:
-            pd.DataFrame: The loaded DataFrame.
+            pd.DataFrame: The loaded DataFrame with all columns passed through.
 
         Raises:
             FileNotFoundError: If the data file does not exist.
-            KeyError: If a role column from
-                :attr:`src.flow_loader.ColumnRoles` is missing.
             ValueError: If the file extension is not supported.
         """
         data_config = self.schema.flow.data
@@ -734,28 +757,6 @@ class FlowRunner:
                 f"Unsupported input file extension {extension!r} for "
                 f"{input_path}. Supported: .csv, .json, .jsonl"
             )
-
-        required_columns = {
-            data_config.column_roles.text,
-            data_config.column_roles.entity_id,
-            data_config.column_roles.doc_id,
-            data_config.column_roles.sort_by,
-        }
-        missing_columns = required_columns - set(input_df.columns)
-        if missing_columns:
-            raise KeyError(
-                f"Input file {input_path} is missing role columns: "
-                f"{sorted(missing_columns)}"
-            )
-
-        passthrough_columns = data_config.column_roles.passthrough
-        if passthrough_columns:
-            missing_passthrough = set(passthrough_columns) - set(input_df.columns)
-            if missing_passthrough:
-                raise KeyError(
-                    f"Input file {input_path} is missing passthrough columns: "
-                    f"{sorted(missing_passthrough)}"
-                )
 
         return input_df
 
@@ -836,9 +837,7 @@ class FlowRunner:
         :attr:`src.flow_loader.AsyncConfig.max_concurrent_rows`.
 
         Args:
-            df (pd.DataFrame): The input DataFrame. Must contain the role
-                columns declared in
-                :attr:`src.flow_loader.ColumnRoles`.
+            df (pd.DataFrame): The input DataFrame.
             step (StepConfig): The step config. Used to select the LLM
                 resource via :meth:`_select_resource_id_for_step`.
 
@@ -851,7 +850,10 @@ class FlowRunner:
             KeyError: If a role column is missing after CSV load.
         """
         flow = self.schema.flow
-        column_roles = flow.data.column_roles
+        text_col = str(self._column_hints.get("text", "text"))
+        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
+        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
+        sort_col = str(self._column_hints.get("sort_by", "sort_by"))
         async_config = flow.async_config
 
         resource_id = self._select_resource_id_for_step(step)
@@ -875,7 +877,7 @@ class FlowRunner:
         if "summary_all_context" not in processed_df.columns:
             processed_df["summary_all_context"] = ""
 
-        entity_groups = list(processed_df.groupby(column_roles.entity_id))
+        entity_groups = list(processed_df.groupby(entity_id_col))
 
         skip_ids: Set[str] = set()
         if self.resume:
@@ -896,9 +898,9 @@ class FlowRunner:
                     entity_id=entity_id,
                     group_df=group_df,
                     turn_processor=turn_processor,
-                    text_column=column_roles.text,
-                    doc_id_column=column_roles.doc_id,
-                    sort_column=column_roles.sort_by,
+                    text_column=text_col,
+                    doc_id_column=doc_id_col,
+                    sort_column=sort_col,
                 )
             )
 
@@ -1060,7 +1062,8 @@ class FlowRunner:
             pd.DataFrame: DataFrame with ``summary_all_context`` populated.
         """
         flow = self.schema.flow
-        column_roles = flow.data.column_roles
+        text_col = str(self._column_hints.get("text", "text"))
+        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
         async_config = flow.async_config
 
         resource_id = self._select_resource_id_for_step(step)
@@ -1094,8 +1097,8 @@ class FlowRunner:
 
         tasks = []
         for row in processed_df.itertuples():
-            text = str(getattr(row, column_roles.text, ""))
-            doc_id = getattr(row, column_roles.doc_id, row.Index)
+            text = str(getattr(row, text_col, ""))
+            doc_id = getattr(row, doc_id_col, row.Index)
             tasks.append(_summarise_row(row.Index, text, doc_id))
 
         use_pb = flow.display.use_progress_bar
@@ -1172,11 +1175,11 @@ class FlowRunner:
                         results[f"{key}_classification"] = cls_value
                 return row_index, results
 
-        column_roles = flow.data.column_roles
+        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
         tasks = []
         for row in processed_df.itertuples():
             summary = getattr(row, "summary_all_context", "")
-            doc_id = getattr(row, column_roles.doc_id, row.Index)
+            doc_id = getattr(row, doc_id_col, row.Index)
             tasks.append(_classify_row(row.Index, summary, doc_id))
 
         use_pb = flow.display.use_progress_bar
@@ -1249,7 +1252,10 @@ class FlowRunner:
             Tuple of processed DataFrame and entity states.
         """
         flow = self.schema.flow
-        column_roles = flow.data.column_roles
+        text_col = str(self._column_hints.get("text", "text"))
+        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
+        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
+        sort_col = str(self._column_hints.get("sort_by", "sort_by"))
         async_config = flow.async_config
 
         extractors, llm_semaphore = self._build_extractors(extraction_step)
@@ -1273,7 +1279,7 @@ class FlowRunner:
         if "summary_all_context" not in processed_df.columns:
             processed_df["summary_all_context"] = ""
 
-        entity_groups = list(processed_df.groupby(column_roles.entity_id))
+        entity_groups = list(processed_df.groupby(entity_id_col))
 
         skip_ids: Set[str] = set()
         if self.resume:
@@ -1292,10 +1298,10 @@ class FlowRunner:
             entity_id: Any, group_df: pd.DataFrame,
         ) -> Tuple[Any, Dict[int, str], MessyTextConversationState]:
             async with concurrency_sem:
-                group_sorted = group_df.sort_values(by=column_roles.sort_by)
+                group_sorted = group_df.sort_values(by=sort_col)
                 index_list = group_sorted.index.tolist()
-                texts = [str(t) for t in group_sorted[column_roles.text]]
-                doc_ids = list(group_sorted[column_roles.doc_id])
+                texts = [str(t) for t in group_sorted[text_col]]
+                doc_ids = list(group_sorted[doc_id_col])
 
                 state = MessyTextConversationState(turn_index=0)
                 per_row_summaries: List[str] = []
@@ -1367,7 +1373,10 @@ class FlowRunner:
             Tuple of processed DataFrame and entity states.
         """
         flow = self.schema.flow
-        column_roles = flow.data.column_roles
+        text_col = str(self._column_hints.get("text", "text"))
+        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
+        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
+        sort_col = str(self._column_hints.get("sort_by", "sort_by"))
         async_config = flow.async_config
 
         extractors, llm_semaphore = self._build_extractors(extraction_step)
@@ -1392,7 +1401,7 @@ class FlowRunner:
         if "summary_all_context" not in processed_df.columns:
             processed_df["summary_all_context"] = ""
 
-        entity_groups = list(processed_df.groupby(column_roles.entity_id))
+        entity_groups = list(processed_df.groupby(entity_id_col))
 
         skip_ids: Set[str] = set()
         if self.resume:
@@ -1411,10 +1420,10 @@ class FlowRunner:
             entity_id: Any, group_df: pd.DataFrame,
         ) -> Tuple[Any, Dict[int, str], MessyTextConversationState]:
             async with concurrency_sem:
-                group_sorted = group_df.sort_values(by=column_roles.sort_by)
+                group_sorted = group_df.sort_values(by=sort_col)
                 index_list = group_sorted.index.tolist()
-                texts = [str(t) for t in group_sorted[column_roles.text]]
-                doc_ids = list(group_sorted[column_roles.doc_id])
+                texts = [str(t) for t in group_sorted[text_col]]
+                doc_ids = list(group_sorted[doc_id_col])
 
                 label_keys = list(extractors.keys())
                 n_labels = len(label_keys)
@@ -1503,7 +1512,12 @@ class FlowRunner:
             None.
         """
         output_config = self.schema.flow.output
-        passthrough_columns = self.schema.flow.data.column_roles.passthrough
+        raw_passthrough = self._column_hints.get("passthrough", [])
+        passthrough_columns = (
+            [str(c) for c in raw_passthrough]
+            if isinstance(raw_passthrough, list)
+            else []
+        )
         processed_df = processed_df.copy()
         processed_df["model"] = model_name
         if "summary_all_context" in processed_df.columns:
@@ -1562,7 +1576,7 @@ class FlowRunner:
 
         passthrough_lookup: Dict[Any, Dict[str, Any]] = {}
         if passthrough_columns:
-            doc_id_column = self.schema.flow.data.column_roles.doc_id
+            doc_id_column = str(self._column_hints.get("doc_id", "doc_id"))
             for row in processed_df.itertuples():
                 row_doc_id = getattr(row, doc_id_column, None)
                 passthrough_lookup[row_doc_id] = {

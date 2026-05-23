@@ -1,8 +1,11 @@
 # Preset template: Full Pipeline (full-async label extraction + summary).
 #
 # Pipeline shape:
-#   CSV Data -> Group By entity -> Label Extraction (document)
-#              -> Label Summary (entity, full_async) -> CSV Output
+#   CSV input -> Processor (document, group_by entity)
+#             -> Processor (entity, full_async)
+#             -> CSV output
+#   Each processor connects out to one shared LLM Call node, and the
+#   first processor consults the Codebook node.
 #
 # Target user: experienced users running on hosted LLMs with generous
 # concurrency limits. Identical topology to label_extraction_summary but
@@ -18,63 +21,100 @@
 # the aggregated summary if they want classification on top.
 #
 # Users start from this template, then edit:
-#   - data.input_csv        to the CSV they uploaded
-#   - data.column_roles.*   to match their CSV column names
-#   - resources[0].model    to the model they want
-#   - async.max_*           to the concurrency their provider allows
-#   - output.*              to artifact names they prefer
+#   - input_1.config.selected_file    to the CSV they uploaded
+#   - llm_1.config.model              to the model they want
+#   - settings.async.max_*            to the concurrency their provider allows
+#   - output_1.config.output_path     to the artifact name they prefer
 
 flow:
-  schema_version: 1
   name: full_pipeline
   description: "Full async label extraction + per-entity summary synthesis"
 
-  resources:
-    - id: default
-      type: llm_provider
-      provider: openrouter
-      model: meta-llama/llama-3.1-70b-instruct
-      api_base: https://openrouter.ai/api/v1
-      api_key_env: OPENROUTER_API_KEY
-      temperature: 0.0
-      max_tokens_summary: 1024
-      max_tokens_classification: 256
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/df_text_by_report.csv
 
-  data:
-    input_csv: data/df_text_by_report.csv
-    column_roles:
-      text: text
-      entity_id: victim
-      doc_id: index
-      sort_by: index
+    - id: proc_extract
+      type: processor
+      config:
+        unit: document
+        group_by: entity
+        prompt:
+          instructions:
+            - "Extract codebook label spans from each document."
+        io_schema:
+          output:
+            spans: string
 
-  taxonomy: config/taxonomy.json
-  prompts: config/prompts.json
+    - id: proc_summary
+      type: processor
+      config:
+        unit: entity
+        mode: full_async
+        prompt:
+          instructions:
+            - "Synthesise per-document extractions into one entity summary."
+        io_schema:
+          output:
+            summary: string
 
-  steps:
-    - type: label_extraction
-      unit: document
-      group_by: entity
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: meta-llama/llama-3.1-70b-instruct
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0.0
+        max_tokens: 1024
 
-    - type: label_summary
-      unit: entity
-      mode: full_async
+    - id: codebook_1
+      type: codebook
+      config:
+        codebook_id: default-codebook
 
-  async:
-    enabled: true
-    max_concurrent_rows: 15
-    max_concurrent_llm_calls: 50
-    max_retries: 5
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/full_pipeline_summary.csv
+        artifact_paths:
+          - results_custom/full_pipeline_results.csv
+          - results_custom/full_pipeline_states.csv
+          - results_custom/full_pipeline_spans.csv
+        extend: false
 
-  output:
-    summary_csv: results_custom/full_pipeline_summary.csv
-    results_csv: results_custom/full_pipeline_results.csv
-    states_csv: results_custom/full_pipeline_states.csv
-    spans_csv: results_custom/full_pipeline_spans.csv
-    extend: false
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_extract
+    - type: feedforward
+      source: proc_extract
+      target: proc_summary
+    - type: feedforward
+      source: proc_summary
+      target: output_1
+    - type: llm_call
+      source: proc_extract
+      target: llm_1
+    - type: llm_call
+      source: proc_summary
+      target: llm_1
+    - type: codebook_inquiry
+      source: proc_extract
+      target: codebook_1
 
-  logging:
-    file: processing.log
-    log_progress: true
-  display:
-    use_progress_bar: true
+  settings:
+    async:
+      enabled: true
+      max_concurrent_rows: 15
+      max_concurrent_llm_calls: 50
+      max_retries: 5
+    logging:
+      file: processing.log
+      log_progress: true
+    display:
+      use_progress_bar: true
+    prompts: config/prompts.json

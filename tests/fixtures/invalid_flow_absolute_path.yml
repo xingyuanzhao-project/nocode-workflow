@@ -13,11 +13,6 @@ flow:
       api_key_env: OPENROUTER_API_KEY
   data:
     input_csv: /absolute/path/to/data.csv
-    column_roles:
-      text: text
-      entity_id: victim
-      doc_id: index
-      sort_by: index
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
   steps:

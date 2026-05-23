@@ -26,7 +26,7 @@ export const NODE_TYPE_DRAG_MIME_TYPE = "application/agent_paper_node_type";
 
 const CATEGORY_LABELS: Record<NodeTypeCategory, string> = {
   data: "Data",
-  processor: "Processing",
+  processor: "Processor",
   resource: "Resources",
 };
 
@@ -111,9 +111,6 @@ function PaletteEntryButton({ entry }: PaletteEntryButtonProps): JSX.Element {
       )}
     >
       <span className="text-sm font-medium">{entry.label || entry.id}</span>
-      <span className="text-[0.65rem] font-mono text-muted-foreground">
-        {entry.id}
-      </span>
     </button>
   );
 }

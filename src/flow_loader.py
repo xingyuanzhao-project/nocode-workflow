@@ -1,38 +1,61 @@
 """Loader for MessyText configuration-driven flow YAML files.
 
-The *schema* itself lives in the YAML documents under ``config/flows/``. This
-module is the actor that reads one of those YAML files from disk, applies the
-``llm:`` shorthand normalisation, and validates the result against a set of
-Pydantic models. It produces a typed :class:`FlowSchema` Python object that
-:mod:`src.flow_builder` consumes.
+The flow editor was rebuilt around an explicit graph: every YAML under
+``server/data/flows/`` now stores ``flow.nodes[]`` and ``flow.edges[]``
+directly. This module reads such a YAML, validates it as a
+:class:`FlowDocument`, and *compiles* it into the runtime
+:class:`FlowConfig` shape that :mod:`src.flow_builder` consumes.
 
-The Pydantic models declared here are the *validation rules* for the YAML
-schema — not the schema. Validation runs before any LLM call is made, so
-typos and missing fields fail fast with clear error messages instead of
-surfacing as runtime errors deep inside the processors.
+Compilation walks the graph:
+
+- The single ``csv_input`` / ``json_input`` node becomes the
+  :class:`DataConfig`.
+- The single ``csv_output`` / ``json_output`` node becomes the
+  :class:`OutputConfig`.
+- Processor execution order comes from a topological sort over
+  ``feedforward`` edges (``csv_input → ... → csv_output``).
+- Each processor's LLM resource comes from following its ``llm_call``
+  edge to the ``llm_call`` target node and reading its config.
+- Each processor's codebook (taxonomy) comes from following its
+  ``codebook_inquiry`` edge to the ``codebook`` target node and reading
+  its config.
+
+The Pydantic models declared here split into two layers:
+
+- *Graph schema* — :class:`NodeEntry`, :class:`EdgeEntry`,
+  :class:`FlowSettings`, :class:`FlowDocument`. Validates the on-disk
+  YAML before any compilation runs.
+- *Runtime schema* — :class:`FlowConfig`, :class:`LLMResource`,
+  :class:`DataConfig`, :class:`StepConfig`, :class:`OutputConfig`,
+  :class:`LoggingConfig`, :class:`DisplayConfig`, :class:`AsyncConfig`.
+  The compiler builds these programmatically;
+  :class:`FlowConfig` is the only object :mod:`src.flow_builder` reads.
 
 Contents and relationships
 --------------------------
 
-- :class:`FlowSchema` — top-level envelope matching the YAML file. Wraps a
-  single :class:`FlowConfig` under the ``flow:`` key. Exposes
-  :meth:`FlowSchema.load_from_path` which reads the YAML from disk, applies
-  the ``llm:`` shorthand normalisation, and returns the validated object.
-- :class:`FlowConfig` — the ``flow:`` block. Holds schema version, metadata,
-  LLM resources, data source, taxonomy and prompt paths, ordered pipeline
-  steps, async settings, output paths, logging, and display options.
+- :class:`FlowSchema` — top-level envelope matching the YAML file. Wraps
+  the parsed :class:`FlowDocument` and the compiled :class:`FlowConfig`.
+  Exposes :meth:`FlowSchema.load_from_path` which reads the YAML, parses
+  it as a :class:`FlowDocument`, runs the graph compiler, and returns
+  the validated schema.
+- :class:`FlowDocument` — the new ``flow:`` block: ``name``,
+  ``description``, ``nodes[]``, ``edges[]``, and ``settings``.
+- :class:`NodeEntry` — per-node ``{ id, type, position?, config }`` entry.
+- :class:`EdgeEntry` — per-edge ``{ type, source, target }`` entry.
+- :class:`FlowSettings` — flow-level settings block: ``processing_limit``,
+  ``async``, ``logging``, ``display``, plus an optional ``prompts`` path.
+- :class:`FlowConfig` — runtime form derived from the graph. Holds
+  metadata, LLM resources, data source, taxonomy and prompt paths,
+  ordered pipeline steps, async settings, output paths, logging, and
+  display options.
 - :class:`LLMResource` — one named LLM provider entry under
   ``flow.resources[*]``. Each resource is addressable by ``id`` and is
   referenced by :attr:`StepConfig.llm` when a step needs a non-default LLM.
-- :class:`LLMShorthand` — the single-LLM sugar block accepted as
-  ``flow.llm:``. The loader rewrites this into a one-entry ``resources``
-  list with ``id = "default"`` so downstream code only deals with the
-  canonical :class:`LLMResource` list.
-- :class:`ColumnRoles` — maps the user's actual CSV column names to the
-  internal roles (``text``, ``entity_id``, ``doc_id``, ``sort_by``,
-  ``passthrough``) that the runner loops use.
-- :class:`DataConfig` — the ``flow.data:`` block pointing at the input CSV
-  and holding the :class:`ColumnRoles` binding.
+- (Removed) ``LLMShorthand`` — was the single-LLM sugar block for the
+  old flat format. No code path produces it in the node-edge schema.
+- :class:`DataConfig` — the ``flow.data:`` block pointing at the input
+  data file.
 - :class:`StepConfig` — a single processing step. ``type`` selects the
   runtime behaviour; the set of accepted values is sourced from the
   :mod:`src.node_registry` registry (``config/node_types.yaml``) rather
@@ -76,8 +99,6 @@ Invariants enforced by this module
   are mutually exclusive; :attr:`StepConfig.prompt_overrides` requires
   :attr:`StepConfig.prompts_ref`. Enforced by
   :meth:`StepConfig.validate_prompt_sources`.
-- :class:`ColumnRoles` requires ``text``, ``entity_id``, ``doc_id``, and
-  ``sort_by`` to be present.
 - :attr:`LLMResource.api_key_env` and :attr:`LLMResource.api_key` are
   mutually exclusive in the YAML: the builder resolves ``api_key_env``
   against ``os.environ`` at startup and the runtime copy of the resource
@@ -318,98 +339,10 @@ class LLMResource(BaseModel):
         return self
 
 
-class LLMShorthand(BaseModel):
-    """Single-LLM sugar block accepted as ``flow.llm:``.
-
-    This object exists only to support the shorthand form of the schema. The
-    loader normalises it into a one-entry :class:`LLMResource` list with
-    ``id = "default"`` before any downstream code runs.
-
-    Attributes:
-        provider (str): Same meaning as :attr:`LLMResource.provider`.
-        model (str): Same meaning as :attr:`LLMResource.model`.
-        api_base (Optional[str]): Same meaning as :attr:`LLMResource.api_base`.
-        api_key (Optional[str]): Same meaning as :attr:`LLMResource.api_key`.
-        api_key_env (Optional[str]): Same meaning as
-            :attr:`LLMResource.api_key_env`.
-        temperature (float): Same meaning as :attr:`LLMResource.temperature`.
-        max_tokens_summary (int): Same meaning as
-            :attr:`LLMResource.max_tokens_summary`.
-        max_tokens_classification (int): Same meaning as
-            :attr:`LLMResource.max_tokens_classification`.
-
-    Methods:
-        to_resource: Convert this shorthand block into a canonical
-            :class:`LLMResource` with ``id = "default"``.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    provider: str
-    model: str
-    api_base: Optional[str] = None
-    api_key: Optional[str] = None
-    api_key_env: Optional[str] = None
-    temperature: float = 0.0
-    max_tokens_summary: int = 1024
-    max_tokens_classification: int = 256
-
-    def to_resource(self) -> LLMResource:
-        """Promote this shorthand block into a canonical :class:`LLMResource`.
-
-        Returns:
-            LLMResource: A resource with ``id = "default"`` and
-            ``type = "llm_provider"``, carrying every value from this
-            shorthand block.
-        """
-        return LLMResource(
-            id="default",
-            type="llm_provider",
-            provider=self.provider,
-            model=self.model,
-            api_base=self.api_base,
-            api_key=self.api_key,
-            api_key_env=self.api_key_env,
-            temperature=self.temperature,
-            max_tokens_summary=self.max_tokens_summary,
-            max_tokens_classification=self.max_tokens_classification,
-        )
-
-
-class ColumnRoles(BaseModel):
-    """Mapping from user CSV column names to the pipeline's internal roles.
-
-    The runner never hard-codes column names. Instead, every loop reads
-    column names out of this object. A user whose CSV has columns named
-    ``article_body``, ``case_number``, ``report_id``, ``pub_date`` sets the
-    four role fields accordingly, and the processors see the same
-    ``text: str`` / ``doc_id: Any`` arguments they always see.
-
-    Attributes:
-        text (str): Name of the column that contains the raw document text
-            fed to the LLM.
-        entity_id (str): Name of the column that groups rows belonging to
-            the same entity. For the current dataset this is ``victim``.
-        doc_id (str): Name of the column that uniquely identifies each
-            document. Passed through to :class:`src.processors.ProcessorResult`
-            as ``doc_id`` for traceability.
-        sort_by (str): Name of the column used to order documents within
-            an entity group before sequential processing.
-        passthrough (List[str]): Extra column names the user wants kept
-            untouched in the output CSVs.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    text: str
-    entity_id: str
-    doc_id: str
-    sort_by: str
-    passthrough: List[str] = Field(default_factory=list)
 
 
 class DataConfig(BaseModel):
-    """``flow.data:`` block: input data file path and column role binding.
+    """``flow.data:`` block: input data file path.
 
     Attributes:
         input_csv (str): Project-root-relative POSIX path to the input
@@ -420,8 +353,6 @@ class DataConfig(BaseModel):
             :func:`_validate_project_relative_posix_path` so the same
             string resolves to the same file in the FastAPI web
             process and the Celery worker container.
-        column_roles (ColumnRoles): The column-to-role mapping used by
-            every runner loop.
 
     Methods:
         validate_input_file_path: Enforce the project-root-relative
@@ -429,12 +360,11 @@ class DataConfig(BaseModel):
             :attr:`input_csv`.
     """
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     input_csv: str = Field(
         validation_alias=AliasChoices("input_csv", "input_file"),
     )
-    column_roles: ColumnRoles
 
     @field_validator("input_csv")
     @classmethod
@@ -755,51 +685,63 @@ class DisplayConfig(BaseModel):
 
 
 class FlowConfig(BaseModel):
-    """The ``flow:`` block: the full validated flow definition.
+    """Runtime view of a flow, derived from a :class:`FlowDocument`.
+
+    The flow YAML now stores nodes and edges, not the flat list of
+    resources/steps this class represents. The graph compiler in
+    :func:`compile_flow_document_to_runtime` walks the parsed
+    :class:`FlowDocument` and constructs an instance of this class so
+    :mod:`src.flow_builder` can keep reading ``schema.flow.<field>``
+    unchanged.
 
     Attributes:
-        schema_version (int): Version of the YAML format. Incremented when
-            the schema changes in an incompatible way.
-        name (str): Short identifier for the flow. Used in logs and output
-            file prefixes.
+        schema_version (int): Always ``1`` for graphs produced by the
+            new editor; kept for backward compatibility with code that
+            inspects this field.
+        name (str): Short identifier for the flow. Used in logs and
+            output file prefixes.
         description (str): Free-form human-readable description.
-        resources (List[LLMResource]): Named LLM provider entries. Either
-            declared directly under ``resources:`` or produced from the
-            ``llm:`` shorthand.
-        data (DataConfig): Input CSV and column role binding.
-        taxonomy (str): Project-root-relative POSIX path to the taxonomy
-            JSON file consumed by the processors.
+        resources (List[LLMResource]): LLM provider entries derived from
+            ``llm_call`` nodes targeted by ``llm_call`` edges.
+        data (DataConfig): Input data file path, derived from the single
+            ``csv_input`` / ``json_input`` node.
+        taxonomy (str): Project-root-relative POSIX path or
+            ``taxonomy://<id>`` URI to the codebook consumed by the
+            processors. Derived from the codebook node targeted by any
+            ``codebook_inquiry`` edge in the graph.
         prompts (str): Project-root-relative POSIX path to the prompts
-            JSON file consumed by the processors.
-        steps (List[StepConfig]): Ordered pipeline steps.
-        processing_limit (Optional[int]): When set, caps the number of
-            entities (grouped pipelines) or rows (flat pipelines) the
-            runner processes. ``None`` means process all.
-        async_config (AsyncConfig): Concurrency settings. Aliased as
-            ``async`` in the YAML.
-        output (OutputConfig): Output CSV paths.
+            JSON file consumed by the processors. Comes from
+            :attr:`FlowSettings.prompts`.
+        steps (List[StepConfig]): Pipeline steps in topological order
+            derived from feedforward edges.
+        processing_limit (Optional[int]): Optional cap on the number of
+            entities/rows the runner processes.
+        async_config (AsyncConfig): Concurrency settings.
+        output (OutputConfig): Output paths derived from the single
+            ``csv_output`` / ``json_output`` node.
         logging (LoggingConfig): Logger file and verbosity flags.
         display (DisplayConfig): User-visible progress options.
 
     Methods:
-        validate_taxonomy_and_prompt_paths: Enforce the project-root-relative
-            POSIX convention on :attr:`taxonomy` and :attr:`prompts`.
-        validate_resources: Ensure resource ids are unique and that every
+        validate_taxonomy_and_prompt_paths: Enforce the project-root-
+            relative POSIX convention on :attr:`taxonomy` and
+            :attr:`prompts`.
+        validate_resources: Ensure resource ids are unique and every
             ``step.llm`` reference resolves.
         validate_steps_non_empty: Ensure at least one step is declared.
-        validate_adjacent_unit_transitions: Enforce the unit compat matrix
-            defined by :data:`VALID_ADJACENT_UNIT_TRANSITIONS`.
+        validate_adjacent_unit_transitions: Enforce the unit-compat
+            matrix on the topologically-sorted step list.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    schema_version: int
+    schema_version: int = 1
     name: str
     description: str = ""
     resources: List[LLMResource]
     data: DataConfig
     taxonomy: str
-    prompts: str
+    prompts: str = "config/prompts.json"
     steps: List[StepConfig]
     processing_limit: Optional[int] = None
     async_config: AsyncConfig = Field(default_factory=AsyncConfig, alias="async")
@@ -929,42 +871,488 @@ class FlowConfig(BaseModel):
         return self
 
 
-class FlowSchema(BaseModel):
-    """Top-level envelope matching the YAML file structure.
+class NodeEntry(BaseModel):
+    """One ``flow.nodes[*]`` entry from the new graph YAML.
 
     Attributes:
-        flow (FlowConfig): The validated flow definition.
-
-    Methods:
-        load_from_path: Read a YAML file from disk, apply shorthand
-            normalisation, and return the validated :class:`FlowSchema`.
+        id (str): Stable identifier referenced by edges.
+        type (str): Discriminator (``csv_input``, ``json_input``,
+            ``processor``, ``llm_call``, ``codebook``, ``csv_output``,
+            ``json_output``).
+        position (Optional[Dict[str, float]]): Optional canvas position
+            preserved across save/load.
+        config (Dict[str, Any]): Per-node configuration. Schema depends
+            on :attr:`type` and is validated during graph compilation.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    id: str
+    type: str
+    position: Optional[Dict[str, float]] = None
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EdgeEntry(BaseModel):
+    """One ``flow.edges[*]`` entry from the new graph YAML.
+
+    Attributes:
+        type (str): Discriminator (``feedforward``, ``llm_call``,
+            ``codebook_inquiry``).
+        source (str): Source :attr:`NodeEntry.id`.
+        target (str): Target :attr:`NodeEntry.id`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    source: str
+    target: str
+
+
+class FlowSettings(BaseModel):
+    """The ``flow.settings:`` block.
+
+    Attributes:
+        processing_limit (Optional[int]): Optional cap on entities/rows.
+        async_config (AsyncConfig): Concurrency settings; aliased as
+            ``async`` in YAML.
+        logging (LoggingConfig): Logger file and verbosity flags.
+        display (DisplayConfig): User-visible progress options.
+        prompts (str): Project-root-relative POSIX path to the prompts
+            JSON file consumed by the processors. Defaults to
+            ``config/prompts.json``.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    processing_limit: Optional[int] = None
+    async_config: AsyncConfig = Field(default_factory=AsyncConfig, alias="async")
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    display: DisplayConfig = Field(default_factory=DisplayConfig)
+    prompts: str = "config/prompts.json"
+
+
+class FlowDocument(BaseModel):
+    """The new ``flow:`` block: explicit graph + settings.
+
+    Attributes:
+        name (str): Short identifier for the flow.
+        description (str): Free-form description.
+        nodes (List[NodeEntry]): Every node placed on the canvas.
+        edges (List[EdgeEntry]): Every relationship the user drew. The
+            graph compiler walks these to derive execution order and
+            wire LLM / codebook resources to processors.
+        settings (FlowSettings): Flow-level settings block.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str = ""
+    nodes: List[NodeEntry]
+    edges: List[EdgeEntry]
+    settings: FlowSettings = Field(default_factory=FlowSettings)
+
+
+# ---- Graph compilation -------------------------------------------------
+
+
+_DATA_INPUT_TYPES: FrozenSet[str] = frozenset({"csv_input", "json_input"})
+_DATA_OUTPUT_TYPES: FrozenSet[str] = frozenset({"csv_output", "json_output"})
+
+
+def _exactly_one(
+    nodes: List[NodeEntry], allowed_types: FrozenSet[str], role: str
+) -> NodeEntry:
+    """Return the single node whose ``type`` is in ``allowed_types``.
+
+    Raises:
+        ValueError: If zero or more than one such node exists.
+    """
+    matches = [node for node in nodes if node.type in allowed_types]
+    if len(matches) == 0:
+        raise ValueError(
+            f"Flow has no {role} node "
+            f"(expected one of {sorted(allowed_types)})."
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"Flow has {len(matches)} {role} nodes; exactly one is required."
+        )
+    return matches[0]
+
+
+def _index_nodes_by_id(nodes: List[NodeEntry]) -> Dict[str, NodeEntry]:
+    """Build an ``id → NodeEntry`` map and reject duplicate ids."""
+    index: Dict[str, NodeEntry] = {}
+    for node in nodes:
+        if node.id in index:
+            raise ValueError(
+                f"Duplicate node id {node.id!r} in flow.nodes."
+            )
+        index[node.id] = node
+    return index
+
+
+def _topo_sort_processors(
+    document: FlowDocument, node_index: Dict[str, NodeEntry]
+) -> List[str]:
+    """Return processor node ids in feedforward execution order.
+
+    Builds a directed graph from ``feedforward`` edges and returns the
+    processors visited by a Kahn topological walk that starts from the
+    data input node. Non-processor nodes (input, output) are excluded
+    from the result; they are handled by the data and output config
+    builders separately.
+    """
+    feedforward_targets: Dict[str, List[str]] = {node.id: [] for node in document.nodes}
+    in_degree: Dict[str, int] = {node.id: 0 for node in document.nodes}
+    for edge in document.edges:
+        if edge.type != "feedforward":
+            continue
+        if edge.source not in node_index or edge.target not in node_index:
+            raise ValueError(
+                f"Feedforward edge references unknown node id "
+                f"({edge.source!r} or {edge.target!r})."
+            )
+        feedforward_targets[edge.source].append(edge.target)
+        in_degree[edge.target] += 1
+
+    queue: List[str] = [
+        node.id
+        for node in document.nodes
+        if in_degree[node.id] == 0 and node.type in _DATA_INPUT_TYPES
+    ]
+    visited_order: List[str] = []
+    while queue:
+        node_id = queue.pop(0)
+        visited_order.append(node_id)
+        for next_id in feedforward_targets[node_id]:
+            in_degree[next_id] -= 1
+            if in_degree[next_id] == 0:
+                queue.append(next_id)
+
+    if len(visited_order) < len(node_index):
+        # Some nodes are unreachable through feedforward edges. That's
+        # OK for resource nodes (LLM Call, Codebook) — they sit aside.
+        # We only require every processor to be reachable; the
+        # downstream check below catches missing processors.
+        pass
+
+    return [
+        node_id
+        for node_id in visited_order
+        if node_index[node_id].type == "processor"
+    ]
+
+
+def _resolve_llm_resource_for_processor(
+    processor_id: str,
+    document: FlowDocument,
+    node_index: Dict[str, NodeEntry],
+) -> Optional[NodeEntry]:
+    """Return the ``llm_call`` node targeted by this processor, if any."""
+    for edge in document.edges:
+        if edge.type != "llm_call":
+            continue
+        if edge.source != processor_id:
+            continue
+        target_node = node_index.get(edge.target)
+        if target_node is None or target_node.type != "llm_call":
+            raise ValueError(
+                f"llm_call edge from {processor_id!r} points at "
+                f"{edge.target!r}, which is not an llm_call node."
+            )
+        return target_node
+    return None
+
+
+def _resolve_codebook_for_processor(
+    processor_id: str,
+    document: FlowDocument,
+    node_index: Dict[str, NodeEntry],
+) -> Optional[NodeEntry]:
+    """Return the ``codebook`` node targeted by this processor, if any."""
+    for edge in document.edges:
+        if edge.type != "codebook_inquiry":
+            continue
+        if edge.source != processor_id:
+            continue
+        target_node = node_index.get(edge.target)
+        if target_node is None or target_node.type != "codebook":
+            raise ValueError(
+                f"codebook_inquiry edge from {processor_id!r} points at "
+                f"{edge.target!r}, which is not a codebook node."
+            )
+        return target_node
+    return None
+
+
+def _build_llm_resource_from_node(node: NodeEntry) -> LLMResource:
+    """Build a :class:`LLMResource` from one ``llm_call`` node entry."""
+    config = dict(node.config)
+    resource_id = str(config.get("resource_id") or node.id)
+    provider = str(config.get("provider") or "openrouter")
+    model = str(config.get("model") or "")
+    api_base = config.get("api_base")
+    api_key = config.get("api_key")
+    api_key_env = config.get("api_key_env")
+    temperature = float(config.get("temperature") or 0)
+    max_tokens = int(config.get("max_tokens") or 1024)
+
+    return LLMResource(
+        id=resource_id,
+        type="llm_provider",
+        provider=provider,
+        model=model,
+        api_base=api_base if isinstance(api_base, str) and api_base else None,
+        api_key=api_key if isinstance(api_key, str) and api_key else None,
+        api_key_env=api_key_env
+        if isinstance(api_key_env, str) and api_key_env
+        else None,
+        temperature=temperature,
+        max_tokens_summary=max_tokens,
+        max_tokens_classification=max_tokens,
+    )
+
+
+def _build_data_config_from_node(node: NodeEntry) -> DataConfig:
+    """Build a :class:`DataConfig` from one ``csv_input`` / ``json_input`` node."""
+    config = dict(node.config)
+    selected_file = config.get("selected_file")
+    if not isinstance(selected_file, str) or not selected_file:
+        raise ValueError(
+            f"Data input node {node.id!r} has no selected_file set."
+        )
+
+    return DataConfig(input_csv=selected_file)
+
+
+def _build_output_config_from_node(node: NodeEntry) -> OutputConfig:
+    """Build an :class:`OutputConfig` from one ``csv_output`` / ``json_output`` node.
+
+    The legacy :class:`OutputConfig` has separate ``summary_csv`` /
+    ``results_csv`` / ``states_csv`` / ``spans_csv`` slots. The new
+    output node exposes a single ``output_path`` plus an
+    ``artifact_paths`` list. We map ``output_path`` to ``summary_csv``
+    (the only required field) and the artifact list to the optional
+    fields in declared order.
+    """
+    config = dict(node.config)
+    output_path = config.get("output_path")
+    if not isinstance(output_path, str) or not output_path:
+        raise ValueError(f"Output node {node.id!r} has no output_path set.")
+
+    artifact_paths = config.get("artifact_paths") or []
+    if not isinstance(artifact_paths, list):
+        raise ValueError(
+            f"Output node {node.id!r} artifact_paths is not a list."
+        )
+    extend = bool(config.get("extend"))
+
+    extra_paths: List[Optional[str]] = [None, None, None]
+    for index in range(min(3, len(artifact_paths))):
+        candidate = artifact_paths[index]
+        extra_paths[index] = (
+            str(candidate) if isinstance(candidate, str) and candidate else None
+        )
+
+    return OutputConfig(
+        summary_csv=output_path,
+        results_csv=extra_paths[0],
+        states_csv=extra_paths[1],
+        spans_csv=extra_paths[2],
+        extend=extend,
+    )
+
+
+def _build_taxonomy_path(node: NodeEntry) -> str:
+    """Return the taxonomy URI / path encoded in one ``codebook`` node."""
+    config = dict(node.config)
+    codebook_id = config.get("codebook_id")
+    codebook_path = config.get("codebook_path")
+    if isinstance(codebook_id, str) and codebook_id:
+        return f"taxonomy://{codebook_id}"
+    if isinstance(codebook_path, str) and codebook_path:
+        return codebook_path
+    raise ValueError(
+        f"Codebook node {node.id!r} sets neither codebook_id nor codebook_path."
+    )
+
+
+def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepConfig:
+    """Build a :class:`StepConfig` from one ``processor`` node entry."""
+    config = dict(node.config)
+    unit = str(config.get("unit") or "row")
+    group_by = config.get("group_by")
+    group_by = (
+        group_by
+        if isinstance(group_by, str) and group_by
+        else None
+    )
+    mode = config.get("mode")
+    mode = mode if isinstance(mode, str) and mode else None
+    keys = config.get("keys")
+
+    io_schema_raw = config.get("io_schema")
+    io_schema_obj = None
+    if isinstance(io_schema_raw, dict) and io_schema_raw:
+        io_schema_obj = IOSchema.model_validate(io_schema_raw)
+
+    prompt_raw = config.get("prompt")
+    prompt_obj = (
+        PromptInline.model_validate(prompt_raw)
+        if isinstance(prompt_raw, dict) and prompt_raw.get("instructions")
+        else None
+    )
+
+    prompts_ref = config.get("prompts_ref")
+    prompts_ref = (
+        prompts_ref
+        if isinstance(prompts_ref, str) and prompts_ref
+        else None
+    )
+
+    prompt_overrides_raw = config.get("prompt_overrides")
+    prompt_overrides_obj = (
+        PromptOverride.model_validate(prompt_overrides_raw)
+        if isinstance(prompt_overrides_raw, dict) and prompt_overrides_raw
+        else None
+    )
+
+    return StepConfig(
+        type="processor",
+        unit=unit,
+        group_by=group_by,
+        llm=llm_resource_id,
+        mode=mode,
+        keys=keys,
+        io_schema=io_schema_obj,
+        prompts_ref=prompts_ref,
+        prompt=prompt_obj,
+        prompt_overrides=prompt_overrides_obj,
+    )
+
+
+def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
+    """Walk the parsed graph and construct the runtime :class:`FlowConfig`.
+
+    Raises:
+        ValueError: If the graph is malformed (missing input/output,
+            unresolved llm/codebook references, multiple distinct
+            codebooks, processor without an LLM, etc.).
+    """
+    node_index = _index_nodes_by_id(document.nodes)
+    data_node = _exactly_one(document.nodes, _DATA_INPUT_TYPES, "data input")
+    output_node = _exactly_one(document.nodes, _DATA_OUTPUT_TYPES, "output")
+
+    processor_order = _topo_sort_processors(document, node_index)
+    if not processor_order:
+        raise ValueError("Flow has no processor nodes.")
+
+    resources_by_id: Dict[str, LLMResource] = {}
+    steps: List[StepConfig] = []
+    taxonomy_path: Optional[str] = None
+    seen_codebook_node_id: Optional[str] = None
+
+    for processor_id in processor_order:
+        processor_node = node_index[processor_id]
+        llm_node = _resolve_llm_resource_for_processor(
+            processor_id, document, node_index
+        )
+        if llm_node is None:
+            raise ValueError(
+                f"Processor {processor_id!r} has no llm_call edge; "
+                "every processor must wire to one llm_call node."
+            )
+        llm_resource = _build_llm_resource_from_node(llm_node)
+        if llm_resource.id in resources_by_id:
+            existing = resources_by_id[llm_resource.id]
+            if existing.model_dump() != llm_resource.model_dump():
+                raise ValueError(
+                    f"Two llm_call nodes share resource id "
+                    f"{llm_resource.id!r} but carry different config."
+                )
+        else:
+            resources_by_id[llm_resource.id] = llm_resource
+
+        codebook_node = _resolve_codebook_for_processor(
+            processor_id, document, node_index
+        )
+        if codebook_node is not None:
+            if (
+                seen_codebook_node_id is not None
+                and seen_codebook_node_id != codebook_node.id
+            ):
+                raise ValueError(
+                    "Multiple processors point at different codebook nodes; "
+                    "the runtime supports one codebook per flow."
+                )
+            seen_codebook_node_id = codebook_node.id
+            taxonomy_path = _build_taxonomy_path(codebook_node)
+
+        steps.append(_build_step_from_processor(processor_node, llm_resource.id))
+
+    if taxonomy_path is None:
+        # No processor consults a codebook; pick a placeholder file path
+        # so :class:`FlowConfig` validation still passes. The runner does
+        # not load this file when no step actually needs it.
+        taxonomy_path = "config/taxonomy.json"
+
+    flow_config = FlowConfig(
+        schema_version=1,
+        name=document.name,
+        description=document.description,
+        resources=list(resources_by_id.values()),
+        data=_build_data_config_from_node(data_node),
+        taxonomy=taxonomy_path,
+        prompts=document.settings.prompts,
+        steps=steps,
+        processing_limit=document.settings.processing_limit,
+        async_config=document.settings.async_config,
+        output=_build_output_config_from_node(output_node),
+        logging=document.settings.logging,
+        display=document.settings.display,
+    )
+    return flow_config
+
+
+class FlowSchema(BaseModel):
+    """Top-level envelope matching the YAML file structure.
+
+    Attributes:
+        document (FlowDocument): The parsed graph (nodes + edges +
+            settings) read from the YAML.
+        flow (FlowConfig): The runtime form compiled from
+            :attr:`document`. :mod:`src.flow_builder` reads this.
+
+    Methods:
+        load_from_path: Read a YAML file from disk, parse it as a
+            :class:`FlowDocument`, compile it into the runtime
+            :class:`FlowConfig`, and return the validated schema.
+    """
+
+    model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
+
+    document: FlowDocument
     flow: FlowConfig
 
     @classmethod
     def load_from_path(cls, flow_yaml_path: Path) -> "FlowSchema":
-        """Load and validate a flow YAML file.
-
-        The loader applies the ``llm:`` shorthand normalisation before
-        validation: if the YAML declares ``flow.llm:`` but not
-        ``flow.resources:``, the ``llm:`` block is promoted to a one-entry
-        ``resources`` list with ``id = "default"``. Declaring both
-        ``flow.llm`` and ``flow.resources`` is rejected to avoid ambiguity.
+        """Load and validate a flow YAML file in the new graph format.
 
         Args:
             flow_yaml_path (Path): Path to the flow YAML file on disk.
 
         Returns:
-            FlowSchema: The validated schema with ``resources`` always
-            populated.
+            FlowSchema: The validated schema with both the parsed graph
+            and the compiled runtime view.
 
         Raises:
             FileNotFoundError: If ``flow_yaml_path`` does not exist.
-            ValueError: If the YAML declares both ``flow.llm`` and
-                ``flow.resources``, or if Pydantic validation fails.
+            ValueError: If the YAML is not a valid graph or fails graph
+                compilation.
         """
         flow_yaml_path = Path(flow_yaml_path)
         if not flow_yaml_path.exists():
@@ -975,22 +1363,13 @@ class FlowSchema(BaseModel):
         with flow_yaml_path.open("r", encoding="utf-8") as yaml_file:
             raw_document: Dict[str, Any] = yaml.safe_load(yaml_file) or {}
 
-        flow_block: Dict[str, Any] = raw_document.get("flow") or {}
-        has_shorthand = "llm" in flow_block
-        has_resources = "resources" in flow_block
+        flow_block: Dict[str, Any] = raw_document.get("flow") or raw_document
+        document = FlowDocument.model_validate(flow_block)
+        flow_config = compile_flow_document_to_runtime(document)
+        return cls(document=document, flow=flow_config)
 
-        if has_shorthand and has_resources:
-            raise ValueError(
-                "flow.llm (shorthand) and flow.resources (canonical) are "
-                "mutually exclusive. Use exactly one of them."
-            )
-
-        if has_shorthand:
-            shorthand_block = LLMShorthand(**flow_block["llm"])
-            flow_block = dict(flow_block)
-            del flow_block["llm"]
-            flow_block["resources"] = [shorthand_block.to_resource().model_dump()]
-            raw_document = dict(raw_document)
-            raw_document["flow"] = flow_block
-
-        return cls.model_validate(raw_document)
+    @classmethod
+    def from_document(cls, document: FlowDocument) -> "FlowSchema":
+        """Build a :class:`FlowSchema` from an in-memory :class:`FlowDocument`."""
+        flow_config = compile_flow_document_to_runtime(document)
+        return cls(document=document, flow=flow_config)

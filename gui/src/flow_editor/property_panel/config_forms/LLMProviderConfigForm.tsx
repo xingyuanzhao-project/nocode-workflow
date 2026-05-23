@@ -1,5 +1,5 @@
 /**
- * Config-tab form for :class:`@/flow_editor/nodes/llm_provider_node.LLMProviderNode`.
+ * Config-tab form for :class:`LLMCallNode`.
  *
  * The model dropdown is fed by ``GET /api/models/{provider}`` via
  * :mod:`@/api/models`. Users can type a model id by hand if the
@@ -27,8 +27,7 @@ const providerFormSchema = z.object({
   api_base: z.string().nullable(),
   api_key_env: z.string().nullable(),
   temperature: z.coerce.number().min(0).max(2),
-  max_tokens_summary: z.coerce.number().int().positive(),
-  max_tokens_classification: z.coerce.number().int().positive(),
+  max_tokens: z.coerce.number().int().positive(),
 });
 type ProviderFormValues = z.infer<typeof providerFormSchema>;
 
@@ -39,7 +38,12 @@ export interface LLMProviderConfigFormProps {
 function readInitialValues(node: GraphNode): ProviderFormValues {
   const data = node.data;
   const valid_providers = [
-    "openrouter", "openai", "local_vllm", "ollama", "vllm", "llama_cpp",
+    "openrouter",
+    "openai",
+    "local_vllm",
+    "ollama",
+    "vllm",
+    "llama_cpp",
   ];
   const provider_value =
     typeof data.provider === "string" &&
@@ -56,16 +60,8 @@ function readInitialValues(node: GraphNode): ProviderFormValues {
     api_base: typeof data.api_base === "string" ? data.api_base : null,
     api_key_env:
       typeof data.api_key_env === "string" ? data.api_key_env : null,
-    temperature:
-      typeof data.temperature === "number" ? data.temperature : 0,
-    max_tokens_summary:
-      typeof data.max_tokens_summary === "number"
-        ? data.max_tokens_summary
-        : 1024,
-    max_tokens_classification:
-      typeof data.max_tokens_classification === "number"
-        ? data.max_tokens_classification
-        : 256,
+    temperature: typeof data.temperature === "number" ? data.temperature : 0,
+    max_tokens: typeof data.max_tokens === "number" ? data.max_tokens : 1024,
   };
 }
 
@@ -180,7 +176,7 @@ export function LLMProviderConfigForm({
         </span>
       </label>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-xs">
           <span className="font-medium">Temperature</span>
           <input
@@ -191,19 +187,11 @@ export function LLMProviderConfigForm({
           />
         </label>
         <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">max_tokens summary</span>
+          <span className="font-medium">max_tokens</span>
           <input
             type="number"
             className="rounded-md border bg-background px-2 py-1 text-sm"
-            {...form.register("max_tokens_summary")}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">max_tokens classification</span>
-          <input
-            type="number"
-            className="rounded-md border bg-background px-2 py-1 text-sm"
-            {...form.register("max_tokens_classification")}
+            {...form.register("max_tokens")}
           />
         </label>
       </div>

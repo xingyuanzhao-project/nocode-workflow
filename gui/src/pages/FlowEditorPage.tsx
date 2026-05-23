@@ -7,8 +7,8 @@
  *   :class:`NewFlowDialog` or an import). The editor renders the
  *   canvas and a toolbar for saving / running / importing / exporting.
  * - ``"edit"``: loads the saved flow identified by ``:flow_id`` via
- *   ``GET /api/flow/:flow_id`` and pipes it through
- *   :func:`flowConfigToGraph` into the stores.
+ *   ``GET /api/flow/:flow_id`` and pipes the parsed YAML through
+ *   :func:`deserialize_flow_document` into the typed graph store.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,13 +22,13 @@ import {
   updateFlow,
 } from "@/api/flows";
 import { FlowCanvas } from "@/flow_editor/canvas/FlowCanvas";
+import { deserialize_flow_document } from "@/flow_editor/model/deserialize";
+import { serialize_flow_document } from "@/flow_editor/model/serialize";
 import { NodePalette } from "@/flow_editor/palette/NodePalette";
 import { PropertyPanel } from "@/flow_editor/property_panel/PropertyPanel";
 import { Button } from "@/components/ui/button";
 import { CostEstimateDialog } from "@/components/CostEstimateDialog";
-import { flowBodySchema } from "@/schemas/flow";
-import { flowConfigToGraph } from "@/serialisation/flow_config_to_graph";
-import { graphToFlowConfig } from "@/serialisation/graph_to_flow_config";
+import { flowDocumentSchema } from "@/schemas/flow";
 import {
   parseFlowYaml,
   stringifyFlowYaml,
@@ -66,7 +66,6 @@ export default function FlowEditorPage({
     }));
 
   const flow_settings = useFlowSettingsStore((state) => ({
-    schema_version: state.schema_version,
     processing_limit: state.processing_limit,
     async_config: state.async_config,
     logging_config: state.logging_config,
@@ -89,8 +88,8 @@ export default function FlowEditorPage({
     [set_settings],
   );
 
-  const nodes = useGraphStore((state) => state.nodes);
-  const edges = useGraphStore((state) => state.edges);
+  const typed_nodes = useGraphStore((state) => state.typed_nodes);
+  const typed_edges = useGraphStore((state) => state.typed_edges);
   const set_graph = useGraphStore((state) => state.set_graph);
   const history = useGraphHistory();
 
@@ -104,35 +103,48 @@ export default function FlowEditorPage({
     if (mode !== "edit" || !saved_flow_query.data) {
       return;
     }
-    const parsed_body = flowBodySchema.parse(saved_flow_query.data.flow);
-    const graph_state = flowConfigToGraph(parsed_body);
-    set_graph(graph_state.nodes, graph_state.edges);
+    const deserialised = deserialize_flow_document(saved_flow_query.data.flow);
+    set_graph(deserialised.nodes, deserialised.edges);
     set_metadata({
       flow_id: saved_flow_query.data.id,
-      name: graph_state.flow_metadata.name,
-      description: graph_state.flow_metadata.description,
+      name: deserialised.name,
+      description: deserialised.description,
       is_dirty: false,
     });
-    set_settings(graph_state.flow_settings);
+    set_settings({
+      processing_limit: deserialised.settings.processing_limit,
+      async_config: deserialised.settings.async,
+      logging_config: deserialised.settings.logging,
+      display_config: deserialised.settings.display,
+    });
   }, [mode, saved_flow_query.data, set_graph, set_metadata, set_settings]);
+
+  const build_flow_body = useCallback((): Record<string, unknown> => {
+    const document = serialize_flow_document({
+      name,
+      description,
+      nodes: typed_nodes,
+      edges: typed_edges,
+      settings: {
+        processing_limit: flow_settings.processing_limit,
+        async: flow_settings.async_config,
+        logging: flow_settings.logging_config,
+        display: flow_settings.display_config,
+      },
+    });
+    return flowDocumentSchema.parse(document) as unknown as Record<
+      string,
+      unknown
+    >;
+  }, [name, description, typed_nodes, typed_edges, flow_settings]);
 
   const save_mutation = useMutation({
     mutationFn: async () => {
-      const body = graphToFlowConfig(nodes, edges, {
-        name,
-        description,
-        schema_version: flow_settings.schema_version,
-        processing_limit: flow_settings.processing_limit,
-        async_config: flow_settings.async_config,
-        logging_config: flow_settings.logging_config,
-        display_config: flow_settings.display_config,
-      });
-      const parsed_body = flowBodySchema.parse(body);
+      const body = build_flow_body();
       if (flow_id) {
-        const response = await updateFlow(flow_id, name, parsed_body);
-        return response;
+        return updateFlow(flow_id, name, body);
       }
-      return createFlow(name, parsed_body);
+      return createFlow(name, body);
     },
     onSuccess: (response) => {
       set_metadata({
@@ -174,36 +186,19 @@ export default function FlowEditorPage({
 
   const handle_run_click = useCallback(() => {
     try {
-      const body = graphToFlowConfig(nodes, edges, {
-        name,
-        description,
-        schema_version: flow_settings.schema_version,
-        processing_limit: flow_settings.processing_limit,
-        async_config: flow_settings.async_config,
-        logging_config: flow_settings.logging_config,
-        display_config: flow_settings.display_config,
-      });
-      const parsed_body = flowBodySchema.parse(body);
-      set_pending_flow_body(parsed_body as Record<string, unknown>);
+      const body = build_flow_body();
+      set_pending_flow_body(body);
       set_show_cost_dialog(true);
       set_toolbar_error(null);
     } catch (caught_error) {
       set_toolbar_error(formatErrorMessage(caught_error));
     }
-  }, [nodes, edges, name, description, flow_settings]);
+  }, [build_flow_body]);
 
   const handle_export_yaml = useCallback(() => {
     try {
-      const body = graphToFlowConfig(nodes, edges, {
-        name,
-        description,
-        schema_version: flow_settings.schema_version,
-        processing_limit: flow_settings.processing_limit,
-        async_config: flow_settings.async_config,
-        logging_config: flow_settings.logging_config,
-        display_config: flow_settings.display_config,
-      });
-      const yaml_text = stringifyFlowYaml(flowBodySchema.parse(body));
+      const body = build_flow_body();
+      const yaml_text = stringifyFlowYaml(body);
       const blob = new Blob([yaml_text], { type: "text/yaml" });
       const object_url = URL.createObjectURL(blob);
       const anchor_element = document.createElement("a");
@@ -215,22 +210,27 @@ export default function FlowEditorPage({
     } catch (caught_error) {
       set_toolbar_error(formatErrorMessage(caught_error));
     }
-  }, [nodes, edges, name, description, flow_settings]);
+  }, [build_flow_body, name]);
 
   const handle_import_yaml = useCallback(
     async (file: File) => {
       try {
         const yaml_text = await file.text();
         const parsed_body = parseFlowYaml(yaml_text);
-        const graph_state = flowConfigToGraph(parsed_body);
-        set_graph(graph_state.nodes, graph_state.edges);
+        const deserialised = deserialize_flow_document(parsed_body);
+        set_graph(deserialised.nodes, deserialised.edges);
         set_metadata({
           flow_id: null,
-          name: graph_state.flow_metadata.name,
-          description: graph_state.flow_metadata.description,
+          name: deserialised.name,
+          description: deserialised.description,
           is_dirty: true,
         });
-        set_settings(graph_state.flow_settings);
+        set_settings({
+          processing_limit: deserialised.settings.processing_limit,
+          async_config: deserialised.settings.async,
+          logging_config: deserialised.settings.logging,
+          display_config: deserialised.settings.display,
+        });
         history.clear_history();
         set_toolbar_error(null);
       } catch (caught_error) {

@@ -63,6 +63,8 @@
   /* React Flow overrides so its default light theme blends with ours */
   .react-flow__handle {
     background-color: hsl(var(--primary));
+    width: 12px;
+    height: 12px;
   }
   .react-flow__edge-path {
     stroke: hsl(var(--foreground));

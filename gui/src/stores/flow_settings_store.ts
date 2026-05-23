@@ -1,11 +1,11 @@
 /**
  * Zustand store holding flow-level fields that do not fit the graph.
  *
- * The graph carries the nodes / edges the user sees and edits; the
- * flow YAML however also contains ``async``, ``logging``, ``display``,
- * ``processing_limit``, and ``schema_version`` which have no visual
- * representation. This store owns those fields so they survive a
- * YAML→graph→YAML round-trip without polluting the graph nodes.
+ * The graph carries the typed nodes / edges the user sees and edits;
+ * the flow YAML however also contains ``async``, ``logging``, ``display``,
+ * and ``processing_limit`` fields under a ``settings:`` block which have
+ * no visual representation. This store owns those fields so they survive
+ * a YAML→graph→YAML round-trip without polluting the graph nodes.
  */
 
 import { create, type StoreApi, type UseBoundStore } from "zustand";
@@ -17,15 +17,13 @@ import type {
 } from "@/schemas/flow";
 
 export interface FlowSettingsState {
-  /** Flow schema version (server-defined; defaults to 1). */
-  schema_version: number;
   /** Optional cap on the number of entities/rows the runner processes. */
   processing_limit: number | null;
-  /** Async / concurrency settings (FlowConfig.async). */
+  /** Async / concurrency settings (``flow.settings.async``). */
   async_config: AsyncConfig;
-  /** Logging settings (FlowConfig.logging). */
+  /** Logging settings (``flow.settings.logging``). */
   logging_config: LoggingConfig;
-  /** Display settings (FlowConfig.display). */
+  /** Display settings (``flow.settings.display``). */
   display_config: DisplayConfig;
 
   /** Replace every setting at once (used by the codec on load). */
@@ -54,13 +52,11 @@ const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 
 const INITIAL_SETTINGS: Pick<
   FlowSettingsState,
-  | "schema_version"
   | "processing_limit"
   | "async_config"
   | "logging_config"
   | "display_config"
 > = {
-  schema_version: 1,
   processing_limit: null,
   async_config: DEFAULT_ASYNC_CONFIG,
   logging_config: DEFAULT_LOGGING_CONFIG,

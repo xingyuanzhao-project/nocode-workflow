@@ -47,12 +47,6 @@ def _base_flow_dict(step_dicts):
         ],
         "data": {
             "input_csv": "df_text_by_report.csv",
-            "column_roles": {
-                "text": "text",
-                "entity_id": "victim",
-                "doc_id": "report_id",
-                "sort_by": "date",
-            },
         },
         "taxonomy": "config/taxonomy.json",
         "prompts": "config/prompts.json",

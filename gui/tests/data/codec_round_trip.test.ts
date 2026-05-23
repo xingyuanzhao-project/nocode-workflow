@@ -145,11 +145,7 @@ describe("palette-dropped node renders without crash", () => {
           ? "resource"
           : "processor";
       const payload = buildDefaultNodeData(makeEntry(node_type_id, category));
-      // Regression guard for the DataSource crash: csv_input must
-      // expose a non-null ``column_roles`` so ``Object.values`` never
-      // blows up inside :class:`DataSourceNode`.
       if (node_type_id === "csv_input") {
-        expect(payload.column_roles).toBeTypeOf("object");
         expect(payload.upload).toBe(null);
       }
       if (node_type_id === "csv_output") {
@@ -166,12 +162,6 @@ describe("graph assembled from palette drops serialises cleanly", () => {
   it("minimal palette-built flow validates under flowBodySchema", () => {
     const data_source = dropNode(makeEntry("csv_input", "data"), {
       upload: { stored_path: "data/df_text_by_report.csv" },
-      column_roles: {
-        text: "text",
-        entity_id: "victim",
-        doc_id: "index",
-        sort_by: "index",
-      },
     });
     const processor = dropNode(makeEntry("single_summary", "processor"), {
       unit: "row",
@@ -220,12 +210,6 @@ describe("graph assembly error paths", () => {
   it("two DataSources raise a helpful error", () => {
     const first = dropNode(makeEntry("csv_input", "data"), {
       upload: { stored_path: "data/df_text_by_report.csv" },
-      column_roles: {
-        text: "text",
-        entity_id: "victim",
-        doc_id: "index",
-        sort_by: "index",
-      },
     });
     const second = { ...first, id: "csv_input_other" };
     const processor = dropNode(makeEntry("single_summary", "processor"), {
@@ -246,10 +230,9 @@ describe("graph assembly error paths", () => {
     ).toThrow(/exactly one/);
   });
 
-  it("unmapped column roles raise a helpful error", () => {
+  it("data source without file raises a helpful error", () => {
     const data_source = dropNode(makeEntry("csv_input", "data"), {
       upload: { stored_path: "data/df_text_by_report.csv" },
-      column_roles: {},
     });
     const processor = dropNode(makeEntry("single_summary", "processor"), {
       unit: "row",
@@ -275,12 +258,6 @@ describe("graph assembly error paths", () => {
   it("disconnected processor raises a helpful error", () => {
     const data_source = dropNode(makeEntry("csv_input", "data"), {
       upload: { stored_path: "data/df_text_by_report.csv" },
-      column_roles: {
-        text: "text",
-        entity_id: "victim",
-        doc_id: "index",
-        sort_by: "index",
-      },
     });
     const connected_processor = dropNode(
       makeEntry("single_summary", "processor"),

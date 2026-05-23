@@ -63,48 +63,48 @@ export function PropertyPanel(): JSX.Element {
   return (
     <aside className="flex h-full w-96 shrink-0 flex-col border-l bg-background">
       <div className="border-b px-4 py-3">
-        <div className="text-[0.65rem] font-mono uppercase tracking-wide text-muted-foreground">
-          {category || "Node"}
-        </div>
-        <h2 className="text-sm font-semibold">{label}</h2>
-        <div className="text-xs text-muted-foreground">{node_type_id}</div>
+        {is_processor_node ? (
+          <>
+            <h2 className="text-sm font-semibold">{label}</h2>
+            <div className="text-xs text-muted-foreground">
+              Configure output schema and prompt instructions.
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-[0.65rem] font-mono uppercase tracking-wide text-muted-foreground">
+              {category || "Node"}
+            </div>
+            <h2 className="text-sm font-semibold">{label}</h2>
+          </>
+        )}
       </div>
-      <Tabs defaultValue="config" className="flex flex-1 flex-col">
-        <div className="border-b px-4 py-2">
-          <TabsList>
-            <TabsTrigger value="config">Config</TabsTrigger>
-            <TabsTrigger value="io_schema" disabled={!is_processor_node}>
-              IO Schema
-            </TabsTrigger>
-            <TabsTrigger value="prompt" disabled={!is_processor_node}>
-              Prompt
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          <TabsContent value="config" className="mt-0">
-            <ConfigTab node={selected_node} />
-          </TabsContent>
-          <TabsContent value="io_schema" className="mt-0">
-            {is_processor_node ? (
+      {is_processor_node ? (
+        <Tabs defaultValue="config" className="flex flex-1 flex-col">
+          <div className="border-b px-4 py-2">
+            <TabsList>
+              <TabsTrigger value="config">Config</TabsTrigger>
+              <TabsTrigger value="output_schema">Output Schema</TabsTrigger>
+              <TabsTrigger value="prompt">Prompt</TabsTrigger>
+            </TabsList>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            <TabsContent value="config" className="mt-0">
+              <ConfigTab node={selected_node} />
+            </TabsContent>
+            <TabsContent value="output_schema" className="mt-0">
               <IOSchemaTab node={selected_node} />
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                IO schema is only editable on processor nodes.
-              </p>
-            )}
-          </TabsContent>
-          <TabsContent value="prompt" className="mt-0">
-            {is_processor_node ? (
+            </TabsContent>
+            <TabsContent value="prompt" className="mt-0">
               <PromptTab node={selected_node} />
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Prompt overrides are only editable on processor nodes.
-              </p>
-            )}
-          </TabsContent>
+            </TabsContent>
+          </div>
+        </Tabs>
+      ) : (
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <ConfigTab node={selected_node} />
         </div>
-      </Tabs>
+      )}
     </aside>
   );
 }

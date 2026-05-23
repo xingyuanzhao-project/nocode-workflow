@@ -60,18 +60,29 @@ registered with Celery. Referenced by :meth:`RunDispatcher.submit` so
 the dispatcher stays decoupled from the workers module."""
 
 
+_OUTPUT_NODE_TYPES = frozenset({"csv_output", "json_output"})
+
+
 def _rewrite_output_paths(
     flow_definition: Dict[str, Any], run_paths: RunPaths
 ) -> Dict[str, Any]:
     """Return a copy of ``flow_definition`` with every output path pinned to ``run_paths``.
 
-    Rewrites:
+    The flow body is the new graph format. The dispatcher walks
+    ``nodes[]`` to find the single output node (``csv_output`` /
+    ``json_output``) and rewrites its ``config.output_path`` plus every
+    entry of ``config.artifact_paths`` so they sit under the run
+    directory. It also rewrites
+    ``settings.logging.file`` to :attr:`RunPaths.worker_log_path_relative_posix`.
 
-    - ``output.summary_csv`` → ``<run_dir_relative_posix>/summary.csv``
-    - ``output.results_csv`` → ``<run_dir_relative_posix>/results.csv`` (if present)
-    - ``output.states_csv`` → ``<run_dir_relative_posix>/states.csv`` (if present)
-    - ``output.spans_csv`` → ``<run_dir_relative_posix>/spans.csv`` (if present)
-    - ``logging.file`` → :attr:`RunPaths.worker_log_path_relative_posix`
+    Per-run filenames:
+
+    - ``output_path`` → ``<run_dir_relative_posix>/summary.csv``
+    - ``artifact_paths[0]`` → ``<run_dir>/results.csv`` (if present)
+    - ``artifact_paths[1]`` → ``<run_dir>/states.csv`` (if present)
+    - ``artifact_paths[2]`` → ``<run_dir>/spans.csv`` (if present)
+    - ``settings.logging.file`` →
+      :attr:`RunPaths.worker_log_path_relative_posix`
 
     All rewritten values are project-root-relative POSIX strings so that
     the YAML on disk resolves identically in the FastAPI web process and
@@ -82,8 +93,8 @@ def _rewrite_output_paths(
     The rewrite is a deep copy; the input dict is never mutated.
 
     Args:
-        flow_definition (Dict[str, Any]): Raw flow body as submitted by
-            the caller.
+        flow_definition (Dict[str, Any]): Raw flow body in the new graph
+            format (``nodes[]`` / ``edges[]`` / ``settings``).
         run_paths (RunPaths): The run's on-disk layout.
 
     Returns:
@@ -92,16 +103,38 @@ def _rewrite_output_paths(
     rewritten = copy.deepcopy(flow_definition)
     run_dir = run_paths.run_dir_relative_posix
 
-    output_block = rewritten.setdefault("output", {})
-    output_block["summary_csv"] = f"{run_dir}/summary.csv"
-    if output_block.get("results_csv") is not None:
-        output_block["results_csv"] = f"{run_dir}/results.csv"
-    if output_block.get("states_csv") is not None:
-        output_block["states_csv"] = f"{run_dir}/states.csv"
-    if output_block.get("spans_csv") is not None:
-        output_block["spans_csv"] = f"{run_dir}/spans.csv"
+    artifact_filenames = ["results.csv", "states.csv", "spans.csv"]
+    nodes_list = rewritten.get("nodes")
+    if isinstance(nodes_list, list):
+        for node in nodes_list:
+            if not isinstance(node, dict):
+                continue
+            if node.get("type") not in _OUTPUT_NODE_TYPES:
+                continue
+            node_config = node.setdefault("config", {})
+            if not isinstance(node_config, dict):
+                node_config = {}
+                node["config"] = node_config
+            node_config["output_path"] = f"{run_dir}/summary.csv"
+            artifact_paths = node_config.get("artifact_paths")
+            if isinstance(artifact_paths, list):
+                rewritten_artifacts = list(artifact_paths)
+                for index in range(min(len(rewritten_artifacts), 3)):
+                    if rewritten_artifacts[index] is None:
+                        continue
+                    rewritten_artifacts[index] = (
+                        f"{run_dir}/{artifact_filenames[index]}"
+                    )
+                node_config["artifact_paths"] = rewritten_artifacts
 
-    logging_block = rewritten.setdefault("logging", {})
+    settings_block = rewritten.setdefault("settings", {})
+    if not isinstance(settings_block, dict):
+        settings_block = {}
+        rewritten["settings"] = settings_block
+    logging_block = settings_block.setdefault("logging", {})
+    if not isinstance(logging_block, dict):
+        logging_block = {}
+        settings_block["logging"] = logging_block
     logging_block["file"] = run_paths.worker_log_path_relative_posix
 
     return rewritten

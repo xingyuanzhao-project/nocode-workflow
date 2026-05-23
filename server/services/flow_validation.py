@@ -41,7 +41,7 @@ from typing import Any, Dict, List
 
 from pydantic import ValidationError
 
-from src.flow_loader import FlowSchema
+from src.flow_loader import FlowDocument, FlowSchema, compile_flow_document_to_runtime
 
 from server.schemas.errors import ValidationErrorItem
 from server.schemas.flow import FlowValidationResponse
@@ -90,10 +90,28 @@ class FlowValidator:
             list when it fails.
         """
         try:
-            FlowSchema.model_validate({"flow": flow_definition})
+            document = FlowDocument.model_validate(flow_definition)
         except ValidationError as exc:
             return FlowValidationResponse(
                 valid=False,
                 errors=_flatten_validation_error(exc),
+            )
+        try:
+            compile_flow_document_to_runtime(document)
+        except (ValueError, ValidationError) as exc:
+            if isinstance(exc, ValidationError):
+                return FlowValidationResponse(
+                    valid=False,
+                    errors=_flatten_validation_error(exc),
+                )
+            return FlowValidationResponse(
+                valid=False,
+                errors=[
+                    ValidationErrorItem(
+                        loc=["flow"],
+                        msg=str(exc),
+                        type="value_error",
+                    )
+                ],
             )
         return FlowValidationResponse(valid=True, errors=[])

@@ -11,9 +11,9 @@ Contents and relationships
 
 - :func:`execute_flow` — the single ``@celery_app.task`` in this
   scaffold.
-- :func:`_resolve_taxonomy_override` — reads the flow YAML's
-  ``taxonomy`` field and, when it is a ``taxonomy://<id>`` URI,
-  loads the taxonomy body from
+- :func:`_resolve_taxonomy_override` — walks ``flow.nodes[]`` for a
+  ``codebook`` node, reads its ``config.codebook_id``, and loads the
+  taxonomy body from
   :class:`server.services.taxonomy_repository.TaxonomyRepository`.
 
 How the rest of the system uses this module
@@ -62,7 +62,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 
-from src.flow_builder import TAXONOMY_URI_PREFIX, build_flow
+from src.flow_builder import build_flow
 
 from server.celery_app import celery_app
 from server.settings import get_settings
@@ -76,11 +76,11 @@ def _resolve_taxonomy_override(
 ) -> Optional[Dict[str, Any]]:
     """Load taxonomy data from the repository when the flow uses a URI.
 
-    Reads the ``taxonomy`` field from the flow YAML on disk. If the
-    value starts with ``taxonomy://``, the id is extracted and the
-    corresponding taxonomy body is loaded from the
-    :class:`TaxonomyRepository`.  Otherwise returns ``None``, letting
-    :func:`build_flow` fall back to loading from the filesystem path.
+    Walks ``flow.nodes[]`` looking for the single ``codebook`` node.
+    When that node's ``config.codebook_id`` is set, the taxonomy body
+    for that id is loaded from the :class:`TaxonomyRepository`. When
+    only ``config.codebook_path`` is set, the file is loaded from disk
+    by :func:`build_flow` itself, so this function returns ``None``.
 
     Args:
         flow_yaml_path (Path): Path to the run's ``flow.yml``.
@@ -88,8 +88,8 @@ def _resolve_taxonomy_override(
             :class:`TaxonomyRepository`.
 
     Returns:
-        Optional[Dict[str, Any]]: The taxonomy body if a ``taxonomy://``
-        URI was found, otherwise ``None``.
+        Optional[Dict[str, Any]]: The taxonomy body if a codebook id is
+        declared, otherwise ``None``.
 
     Raises:
         FileNotFoundError: If the taxonomy id does not exist in the
@@ -97,16 +97,25 @@ def _resolve_taxonomy_override(
     """
     with flow_yaml_path.open("r", encoding="utf-8") as yaml_file:
         raw_document = yaml.safe_load(yaml_file) or {}
-    taxonomy_field = (raw_document.get("flow") or {}).get("taxonomy", "")
-    if not taxonomy_field.startswith(TAXONOMY_URI_PREFIX):
+    flow_block = raw_document.get("flow") or {}
+    nodes_list = flow_block.get("nodes") or []
+    if not isinstance(nodes_list, list):
         return None
-    taxonomy_id = taxonomy_field[len(TAXONOMY_URI_PREFIX):]
-    if not taxonomy_id:
-        raise ValueError(
-            f"taxonomy URI {taxonomy_field!r} has no id after the prefix."
-        )
+    codebook_id: Optional[str] = None
+    for node in nodes_list:
+        if not isinstance(node, dict) or node.get("type") != "codebook":
+            continue
+        node_config = node.get("config") or {}
+        if not isinstance(node_config, dict):
+            continue
+        candidate_id = node_config.get("codebook_id")
+        if isinstance(candidate_id, str) and candidate_id:
+            codebook_id = candidate_id
+            break
+    if codebook_id is None:
+        return None
     repository = TaxonomyRepository(paths=paths)
-    taxonomy_response = repository.get(taxonomy_id)
+    taxonomy_response = repository.get(codebook_id)
     return taxonomy_response.taxonomy
 
 

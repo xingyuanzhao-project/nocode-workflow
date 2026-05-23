@@ -16,9 +16,9 @@ export interface GroupByNodeData {
   node_type_id: "group_by";
   label: string;
   category: "data";
-  /** Entity column name (mirrors column_roles.entity_id). */
+  /** Entity column name used for grouping. */
   entity_column: string;
-  /** Sort-within-entity column name (mirrors column_roles.sort_by). */
+  /** Sort-within-entity column name. */
   sort_by_column: string;
   /** Informational entity-count estimate from the latest upload. */
   entity_count_estimate: number | null;

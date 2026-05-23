@@ -3,8 +3,8 @@
  *
  * Lists the preset templates returned by ``GET /api/flow/templates``
  * plus a "Blank canvas" option. Picking one takes the user to
- * ``/flows/new`` with the chosen template body loaded into the
- * graph store via :func:`flowConfigToGraph`.
+ * ``/flows/new`` with the chosen template body loaded into the typed
+ * graph store via :func:`deserialize_flow_document`.
  */
 
 import { useState } from "react";
@@ -21,8 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { flowBodySchema } from "@/schemas/flow";
-import { flowConfigToGraph } from "@/serialisation/flow_config_to_graph";
+import { deserialize_flow_document } from "@/flow_editor/model/deserialize";
 import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { useFlowSettingsStore } from "@/stores/flow_settings_store";
 import { useGraphStore } from "@/stores/graph_store";
@@ -73,16 +72,20 @@ export function NewFlowDialog({
         reset_settings();
       } else {
         const template = await getFlowTemplate(selected_template_id);
-        const parsed_body = flowBodySchema.parse(template.flow);
-        const graph_state = flowConfigToGraph(parsed_body);
-        set_graph(graph_state.nodes, graph_state.edges);
+        const deserialised = deserialize_flow_document(template.flow);
+        set_graph(deserialised.nodes, deserialised.edges);
         set_metadata({
           flow_id: null,
-          name: graph_state.flow_metadata.name,
-          description: graph_state.flow_metadata.description,
+          name: deserialised.name,
+          description: deserialised.description,
           is_dirty: true,
         });
-        set_settings(graph_state.flow_settings);
+        set_settings({
+          processing_limit: deserialised.settings.processing_limit,
+          async_config: deserialised.settings.async,
+          logging_config: deserialised.settings.logging,
+          display_config: deserialised.settings.display,
+        });
       }
       on_open_change(false);
       navigate("/flows/new");

@@ -1,8 +1,8 @@
 """Regression check: existing flow YAMLs still load under the new loader.
 
-The ``evaluation_only.yml`` flow is deliberately skipped — that file still
-uses ``type: evaluation`` and is scheduled to be rewritten in a later
-step. All other flows must continue to load cleanly.
+The new graph-format flows live under ``server/data/flows/``. Each must
+parse as a :class:`FlowDocument` and compile into a runtime
+:class:`FlowConfig` cleanly.
 
 Run with ``.venv/Scripts/python.exe _verify_existing_flows.py``.
 """
@@ -19,17 +19,17 @@ if str(REPO_ROOT) not in sys.path:
 from src.flow_loader import FlowSchema
 
 
-SKIPPED = {"evaluation_only.yml"}
+SKIPPED: set[str] = set()
 
 
 def main() -> None:
     """Load every non-skipped flow YAML through FlowSchema and report results.
 
-    Iterates ``config/flows/*.yml``, validates each with
+    Iterates ``server/data/flows/*.yml``, validates each with
     :meth:`FlowSchema.load_from_path`, and prints step types and units
     for every successfully loaded flow.  Asserts at least one YAML exists.
     """
-    flow_dir = REPO_ROOT / "config" / "flows"
+    flow_dir = REPO_ROOT / "server" / "data" / "flows"
     flow_paths = sorted(flow_dir.glob("*.yml"))
     assert flow_paths, f"No flow YAMLs found in {flow_dir}"
 

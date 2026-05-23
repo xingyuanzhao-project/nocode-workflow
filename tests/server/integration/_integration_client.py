@@ -116,7 +116,7 @@ def build_single_summary_flow(
     model: str = "google/gemini-2.5-flash",
     processing_limit: int = 1,
 ) -> Dict[str, Any]:
-    """Return a one-step single-summary flow bound to ``stored_path``.
+    """Return a one-step single-summary flow in node-edge format.
 
     Args:
         stored_path (str): Project-root-relative POSIX path returned
@@ -129,44 +129,64 @@ def build_single_summary_flow(
         Dict[str, Any]: Flow body ready for :func:`submit_adhoc_run`.
     """
     return {
-        "schema_version": 1,
         "name": "integration_single_summary",
         "description": "pytest integration: single-summary row flow",
-        "resources": [
+        "nodes": [
             {
-                "id": "default",
-                "type": "llm_provider",
-                "provider": "openrouter",
-                "model": model,
-                "api_base": "https://openrouter.ai/api/v1",
-                "api_key_env": "OPENROUTER_API_KEY",
-                "temperature": 0.0,
-                "max_tokens_summary": 1024,
-                "max_tokens_classification": 256,
-            }
-        ],
-        "data": {
-            "input_csv": stored_path,
-            "column_roles": {
-                "text": "text",
-                "entity_id": "victim",
-                "doc_id": "index",
-                "sort_by": "index",
+                "id": "input_1",
+                "type": "csv_input",
+                "config": {"selected_file": stored_path},
             },
+            {
+                "id": "proc_1",
+                "type": "processor",
+                "config": {"unit": "row"},
+            },
+            {
+                "id": "llm_1",
+                "type": "llm_call",
+                "config": {
+                    "resource_id": "default",
+                    "provider": "openrouter",
+                    "model": model,
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key_env": "OPENROUTER_API_KEY",
+                    "temperature": 0.0,
+                    "max_tokens": 1024,
+                },
+            },
+            {
+                "id": "codebook_1",
+                "type": "codebook",
+                "config": {"codebook_path": "config/taxonomy.json"},
+            },
+            {
+                "id": "output_1",
+                "type": "csv_output",
+                "config": {
+                    "output_path": "integration/summary.csv",
+                    "extend": False,
+                },
+            },
+        ],
+        "edges": [
+            {"type": "feedforward", "source": "input_1", "target": "proc_1"},
+            {"type": "feedforward", "source": "proc_1", "target": "output_1"},
+            {"type": "llm_call", "source": "proc_1", "target": "llm_1"},
+            {"type": "codebook_inquiry", "source": "proc_1", "target": "codebook_1"},
+        ],
+        "settings": {
+            "processing_limit": processing_limit,
+            "async": {
+                "enabled": True,
+                "max_concurrent_rows": 2,
+                "max_concurrent_llm_calls": 2,
+                "max_retries": 2,
+            },
+            "logging": {"file": "integration/processing.log", "log_progress": True},
+            "display": {"use_progress_bar": False},
+            "prompts": "config/prompts.json",
         },
-        "taxonomy": "config/taxonomy.json",
-        "prompts": "config/prompts.json",
-        "steps": [{"type": "single_summary", "unit": "row"}],
-        "processing_limit": processing_limit,
-        "async": {
-            "enabled": True,
-            "max_concurrent_rows": 2,
-            "max_concurrent_llm_calls": 2,
-            "max_retries": 2,
-        },
-        "output": {"summary_csv": "integration/summary.csv", "extend": False},
-        "logging": {"file": "integration/processing.log", "log_progress": True},
-        "display": {"use_progress_bar": False},
     }
 
 
@@ -176,7 +196,7 @@ def build_conversation_summary_flow(
     model: str = "google/gemini-2.5-flash",
     processing_limit: int = 1,
 ) -> Dict[str, Any]:
-    """Return a two-step conversation-summary flow for entity-unit tests.
+    """Return a two-step conversation-summary flow in node-edge format.
 
     Args:
         stored_path (str): Upload stored_path.
@@ -186,27 +206,78 @@ def build_conversation_summary_flow(
     Returns:
         Dict[str, Any]: Flow body.
     """
-    flow = build_single_summary_flow(
-        stored_path, model=model, processing_limit=processing_limit
-    )
-    flow["name"] = "integration_conversation_summary"
-    flow["description"] = "pytest integration: conversation-summary entity flow"
-    flow["steps"] = [
-        {
-            "type": "conversation_summary_first",
-            "unit": "document",
-            "group_by": "entity",
+    return {
+        "name": "integration_conversation_summary",
+        "description": "pytest integration: conversation-summary entity flow",
+        "nodes": [
+            {
+                "id": "input_1",
+                "type": "csv_input",
+                "config": {"selected_file": stored_path},
+            },
+            {
+                "id": "proc_first",
+                "type": "processor",
+                "config": {"unit": "document", "group_by": "entity"},
+            },
+            {
+                "id": "proc_update",
+                "type": "processor",
+                "config": {"unit": "document", "group_by": "entity"},
+            },
+            {
+                "id": "llm_1",
+                "type": "llm_call",
+                "config": {
+                    "resource_id": "default",
+                    "provider": "openrouter",
+                    "model": model,
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key_env": "OPENROUTER_API_KEY",
+                    "temperature": 0.0,
+                    "max_tokens": 1024,
+                },
+            },
+            {
+                "id": "codebook_1",
+                "type": "codebook",
+                "config": {"codebook_path": "config/taxonomy.json"},
+            },
+            {
+                "id": "output_1",
+                "type": "csv_output",
+                "config": {
+                    "output_path": "integration/summary.csv",
+                    "artifact_paths": [
+                        "integration/results.csv",
+                        "integration/states.csv",
+                        "integration/spans.csv",
+                    ],
+                    "extend": False,
+                },
+            },
+        ],
+        "edges": [
+            {"type": "feedforward", "source": "input_1", "target": "proc_first"},
+            {"type": "feedforward", "source": "proc_first", "target": "proc_update"},
+            {"type": "feedforward", "source": "proc_update", "target": "output_1"},
+            {"type": "llm_call", "source": "proc_first", "target": "llm_1"},
+            {"type": "llm_call", "source": "proc_update", "target": "llm_1"},
+            {"type": "codebook_inquiry", "source": "proc_first", "target": "codebook_1"},
+        ],
+        "settings": {
+            "processing_limit": processing_limit,
+            "async": {
+                "enabled": True,
+                "max_concurrent_rows": 2,
+                "max_concurrent_llm_calls": 2,
+                "max_retries": 2,
+            },
+            "logging": {"file": "integration/processing.log", "log_progress": True},
+            "display": {"use_progress_bar": False},
+            "prompts": "config/prompts.json",
         },
-        {
-            "type": "conversation_summary_update",
-            "unit": "document",
-            "group_by": "entity",
-        },
-    ]
-    flow["output"]["results_csv"] = "integration/results.csv"
-    flow["output"]["states_csv"] = "integration/states.csv"
-    flow["output"]["spans_csv"] = "integration/spans.csv"
-    return flow
+    }
 
 
 def submit_adhoc_run(

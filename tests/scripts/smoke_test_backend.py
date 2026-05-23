@@ -194,7 +194,7 @@ def _upload_csv(base_url: str, csv_path: pathlib.Path) -> Dict[str, Any]:
 def _build_smoke_flow(
     stored_path: str, processing_limit: int
 ) -> Dict[str, Any]:
-    """Build a minimal two-step conversation-summary flow.
+    """Build a minimal two-step conversation-summary flow in node-edge format.
 
     The flow references the uploaded CSV via ``stored_path`` (which is
     project-root-relative POSIX) and caps work at ``processing_limit``
@@ -208,70 +208,91 @@ def _build_smoke_flow(
         processing_limit (int): Number of entities to process.
 
     Returns:
-        Dict[str, Any]: A flow body that is valid under
-        :class:`src.flow_loader.FlowSchema`.
+        Dict[str, Any]: A flow body valid under
+        :class:`src.flow_loader.FlowDocument`.
     """
     return {
-        "schema_version": 1,
         "name": "smoke_test_backend",
         "description": "End-to-end smoke test: upload -> validate -> run",
-        "resources": [
+        "nodes": [
             {
-                "id": "default",
-                "type": "llm_provider",
-                "provider": "openrouter",
-                "model": "google/gemini-2.5-pro",
-                "api_base": "https://openrouter.ai/api/v1",
-                "api_key_env": "OPENROUTER_API_KEY",
-                "temperature": 0.0,
-                "max_tokens_summary": 8192,
-                "max_tokens_classification": 1024,
-            }
+                "id": "input_1",
+                "type": "csv_input",
+                "config": {
+                    "selected_file": stored_path,
+                },
+            },
+            {
+                "id": "proc_summary_first",
+                "type": "processor",
+                "config": {
+                    "unit": "document",
+                    "group_by": "entity",
+                },
+            },
+            {
+                "id": "proc_summary_update",
+                "type": "processor",
+                "config": {
+                    "unit": "document",
+                    "group_by": "entity",
+                },
+            },
+            {
+                "id": "llm_1",
+                "type": "llm_call",
+                "config": {
+                    "resource_id": "default",
+                    "provider": "openrouter",
+                    "model": "google/gemini-2.5-pro",
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key_env": "OPENROUTER_API_KEY",
+                    "temperature": 0.0,
+                    "max_tokens": 8192,
+                },
+            },
+            {
+                "id": "codebook_1",
+                "type": "codebook",
+                "config": {
+                    "codebook_path": "config/taxonomy.json",
+                },
+            },
+            {
+                "id": "output_1",
+                "type": "csv_output",
+                "config": {
+                    "output_path": "summary.csv",
+                    "artifact_paths": ["results.csv", "states.csv", "spans.csv"],
+                    "extend": False,
+                },
+            },
         ],
-        "data": {
-            "input_csv": stored_path,
-            "column_roles": {
-                "text": "text",
-                "entity_id": "victim",
-                "doc_id": "index",
-                "sort_by": "index",
-            },
-        },
-        "taxonomy": "config/taxonomy.json",
-        "prompts": "config/prompts.json",
-        "steps": [
-            {
-                "type": "conversation_summary_first",
-                "unit": "document",
-                "group_by": "entity",
-            },
-            {
-                "type": "conversation_summary_update",
-                "unit": "document",
-                "group_by": "entity",
-            },
+        "edges": [
+            {"type": "feedforward", "source": "input_1", "target": "proc_summary_first"},
+            {"type": "feedforward", "source": "proc_summary_first", "target": "proc_summary_update"},
+            {"type": "feedforward", "source": "proc_summary_update", "target": "output_1"},
+            {"type": "llm_call", "source": "proc_summary_first", "target": "llm_1"},
+            {"type": "llm_call", "source": "proc_summary_update", "target": "llm_1"},
+            {"type": "codebook_inquiry", "source": "proc_summary_first", "target": "codebook_1"},
         ],
-        "processing_limit": processing_limit,
-        "async": {
-            "enabled": True,
-            "max_concurrent_rows": 2,
-            "max_concurrent_llm_calls": 4,
-            "max_retries": 3,
+        "settings": {
+            "processing_limit": processing_limit,
+            "async": {
+                "enabled": True,
+                "max_concurrent_rows": 2,
+                "max_concurrent_llm_calls": 4,
+                "max_retries": 3,
+            },
+            "logging": {
+                "file": "processing.log",
+                "log_progress": True,
+                "log_prompts": False,
+                "log_response": False,
+            },
+            "display": {"use_progress_bar": False},
+            "prompts": "config/prompts.json",
         },
-        "output": {
-            "summary_csv": "summary.csv",
-            "results_csv": "results.csv",
-            "states_csv": "states.csv",
-            "spans_csv": "spans.csv",
-            "extend": False,
-        },
-        "logging": {
-            "file": "processing.log",
-            "log_progress": True,
-            "log_prompts": False,
-            "log_response": False,
-        },
-        "display": {"use_progress_bar": False},
     }
 
 
