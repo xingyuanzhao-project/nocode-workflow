@@ -1,7 +1,8 @@
 /**
  * Typed node for ``csv_input`` / ``json_input`` palette items.
  *
- * Holds the user's chosen input file path.
+ * Holds the user's chosen input file path and the list of columns/fields
+ * to pass to the processor.
  */
 
 import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
@@ -9,12 +10,31 @@ import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
 /** ``csv_input`` and ``json_input`` are the same class with a different type. */
 export type DataSourceTypeId = "csv_input" | "json_input";
 
+function parse_input_columns(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const result: string[] = [];
+  for (const item of raw) {
+    if (typeof item === "string" && item.length > 0) {
+      result.push(item);
+    } else if (
+      typeof item === "object" &&
+      item !== null &&
+      "column" in item
+    ) {
+      const col = String((item as Record<string, unknown>).column ?? "");
+      if (col.length > 0) result.push(col);
+    }
+  }
+  return result;
+}
+
 export class DataSourceNode extends BaseNode {
   readonly node_type: DataSourceTypeId;
   readonly category: NodeCategory = "data";
   readonly label: string;
 
   selected_file: string | null = null;
+  input_columns: string[] = [];
 
   constructor(
     id: string,
@@ -34,11 +54,13 @@ export class DataSourceNode extends BaseNode {
       typeof selected_file === "string" && selected_file.length > 0
         ? selected_file
         : null;
+    this.input_columns = parse_input_columns(config.input_columns);
   }
 
   emit_config(): Record<string, unknown> {
     return {
       selected_file: this.selected_file,
+      input_columns: this.input_columns,
     };
   }
 
@@ -55,6 +77,7 @@ export class DataSourceNode extends BaseNode {
       label: this.label,
       category: this.category,
       selected_file: this.selected_file,
+      input_columns: this.input_columns,
     };
   }
 }

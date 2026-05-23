@@ -1,38 +1,31 @@
-"""Service that reads run output artifacts from disk.
+"""Service that reads run output from disk.
 
-Every finished run writes up to four CSVs under
-:attr:`server.storage.run_paths.RunPaths.output_dir`. This service owns
-the read side of that contract: the GUI asks for either a small JSON
-preview (for the in-app results table) or the absolute path of the
-artifact (for the download endpoint), and this service answers from
-:class:`ResultsPreviewResponse` and :class:`pathlib.Path` respectively.
+Every finished run writes a ``summary.csv`` under the run directory.
+This service owns the read side of that contract: the GUI asks for
+either a small JSON preview (for the in-app results table) or the
+absolute path of the output file (for the download endpoint), and this
+service answers from :class:`ResultsPreviewResponse` and
+:class:`pathlib.Path` respectively.
 
 Contents and relationships
 --------------------------
 
 - :class:`ResultsPreviewService` — the service.
-- :data:`_ARTIFACT_FILENAMES` — mapping from
-  :class:`server.schemas.results.ArtifactName` to the CSV filename
-  written by :class:`src.flow_builder.FlowRunner`.
 
 How the rest of the system uses this module
 -------------------------------------------
 
 - :mod:`server.routes.results` calls :meth:`read_preview` from
   ``GET /api/flow/runs/{run_id}/preview`` and
-  :meth:`resolve_artifact_path` from
-  ``GET /api/flow/runs/{run_id}/artifacts/{artifact_name}``.
+  :meth:`resolve_output_path` from
+  ``GET /api/flow/runs/{run_id}/output``.
 
 Invariants enforced by this module
 ----------------------------------
 
-- The service never writes. Artifacts are produced by the worker; the
-  web process only reads them.
-- The mapping in :data:`_ARTIFACT_FILENAMES` is the single source of
-  truth for how :class:`ArtifactName` translates to a filename; changing
-  one requires changing the other. The mapping is validated against the
-  enum membership at import time.
-- Requests for an artifact that does not yet exist raise
+- The service never writes. Output is produced by the worker; the
+  web process only reads it.
+- Requests for a run whose output does not yet exist raise
   :class:`FileNotFoundError` so the route layer can translate it to a
   404 through :mod:`server.errors`.
 """
@@ -44,31 +37,17 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from server.schemas.results import ArtifactName, ResultsPreviewResponse
+from server.schemas.results import ResultsPreviewResponse
 from server.storage.paths import ServerPaths
 from server.storage.run_paths import RunPaths
 
-
-_ARTIFACT_FILENAMES: Dict[ArtifactName, str] = {
-    ArtifactName.SUMMARY: "summary.csv",
-    ArtifactName.RESULTS: "results.csv",
-    ArtifactName.STATES: "states.csv",
-    ArtifactName.SPANS: "spans.csv",
-}
-"""Filename written by :class:`src.flow_builder.FlowRunner` per artifact.
-
-Kept module-private so the only legal way to get a filename from an
-:class:`ArtifactName` is through :meth:`ResultsPreviewService.resolve_artifact_path`.
-"""
-
-
-assert set(_ARTIFACT_FILENAMES.keys()) == set(
-    ArtifactName
-), "_ARTIFACT_FILENAMES must cover every ArtifactName member"
+_OUTPUT_FILENAME: str = "summary.csv"
+"""Filename written by :class:`src.flow_builder.FlowRunner` for the
+primary output artifact."""
 
 
 class ResultsPreviewService:
-    """Read-side service for run output artifacts.
+    """Read-side service for run output.
 
     Attributes:
         paths (ServerPaths): Top-level on-disk layout. Only
@@ -76,10 +55,10 @@ class ResultsPreviewService:
 
     Methods:
         read_preview: Return a JSON preview of the first ``limit`` rows
-            of an artifact CSV.
-        resolve_artifact_path: Return the absolute path of an artifact
-            CSV, raising :class:`FileNotFoundError` when the file does
-            not exist.
+            of the output CSV.
+        resolve_output_path: Return the absolute path of the output CSV,
+            raising :class:`FileNotFoundError` when the file does not
+            exist.
     """
 
     def __init__(self, paths: ServerPaths) -> None:
@@ -93,10 +72,9 @@ class ResultsPreviewService:
     def read_preview(
         self,
         run_id: str,
-        artifact_name: ArtifactName,
         limit: int,
     ) -> ResultsPreviewResponse:
-        """Return the first ``limit`` rows of an artifact CSV as JSON.
+        """Return the first ``limit`` rows of the output CSV as JSON.
 
         The total row count is determined from a second, streaming read
         that counts rows without materialising the entire dataframe.
@@ -106,7 +84,6 @@ class ResultsPreviewService:
 
         Args:
             run_id (str): The run identifier.
-            artifact_name (ArtifactName): Which artifact to read.
             limit (int): Maximum number of rows to include in
                 ``preview_rows``. Must be non-negative.
 
@@ -118,15 +95,15 @@ class ResultsPreviewService:
 
         Raises:
             ValueError: If ``limit`` is negative.
-            FileNotFoundError: If the artifact does not exist for
+            FileNotFoundError: If the output does not exist for
                 ``run_id``.
         """
         if limit < 0:
             raise ValueError(f"limit must be non-negative; got {limit}")
 
-        artifact_path = self.resolve_artifact_path(run_id, artifact_name)
+        output_path = self.resolve_output_path(run_id)
 
-        preview_dataframe = pd.read_csv(artifact_path, nrows=limit)
+        preview_dataframe = pd.read_csv(output_path, nrows=limit)
         column_names: List[str] = [str(name) for name in preview_dataframe.columns]
         preview_rows: List[Dict[str, Any]] = [
             {
@@ -136,24 +113,20 @@ class ResultsPreviewService:
             for row_record in preview_dataframe.to_dict(orient="records")
         ]
 
-        total_row_count = _count_rows_excluding_header(artifact_path)
+        total_row_count = _count_rows_excluding_header(output_path)
 
         return ResultsPreviewResponse(
             run_id=run_id,
-            artifact_name=artifact_name,
             columns=column_names,
             preview_rows=preview_rows,
             total_row_count=total_row_count,
         )
 
-    def resolve_artifact_path(
-        self, run_id: str, artifact_name: ArtifactName
-    ) -> Path:
-        """Return the absolute path of the artifact CSV for ``run_id``.
+    def resolve_output_path(self, run_id: str) -> Path:
+        """Return the absolute path of the output CSV for ``run_id``.
 
         Args:
             run_id (str): The run identifier.
-            artifact_name (ArtifactName): Which artifact to resolve.
 
         Returns:
             Path: Absolute path to the CSV on disk.
@@ -164,14 +137,12 @@ class ResultsPreviewService:
                 operators can debug quickly.
         """
         run_paths = RunPaths.for_run_id(self.paths, run_id)
-        filename = _ARTIFACT_FILENAMES[artifact_name]
-        artifact_path = run_paths.output_dir / filename
-        if not artifact_path.is_file():
+        output_path = run_paths.output_dir / _OUTPUT_FILENAME
+        if not output_path.is_file():
             raise FileNotFoundError(
-                f"Artifact '{artifact_name.value}' not found for run "
-                f"'{run_id}' at {artifact_path}."
+                f"Output not found for run '{run_id}' at {output_path}."
             )
-        return artifact_path
+        return output_path
 
 
 def _count_rows_excluding_header(csv_path: Path) -> int:

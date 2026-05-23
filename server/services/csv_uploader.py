@@ -189,11 +189,11 @@ class CSVUploader:
         )
 
     def list_files(self) -> DataFileListResponse:
-        """List every data file in the uploads directory.
+        """List every data file in uploads, preloaded data, and results directories.
 
         Returns:
-            DataFileListResponse: One entry per file (seeded or
-            user-uploaded; no distinction is made).
+            DataFileListResponse: One entry per file (uploaded data files
+            and pipeline output files).
         """
         items: list[DataFileListItem] = []
 
@@ -209,6 +209,43 @@ class CSVUploader:
                             stored_path=stored_path,
                             row_count=None,
                             source="uploaded",
+                        )
+                    )
+
+        project_root = self.paths.data_dir
+        depth = len(PurePosixPath(self.paths.data_dir_relative_posix).parts)
+        for _ in range(depth):
+            project_root = project_root.parent
+        preloaded_dir = project_root / "data"
+        results_dir = project_root / "results_custom"
+
+        if preloaded_dir.exists():
+            for file_path in sorted(preloaded_dir.rglob("*")):
+                if (
+                    file_path.is_file()
+                    and file_path.suffix.lower() in SUPPORTED_UPLOAD_EXTENSIONS
+                ):
+                    stored_path = file_path.relative_to(project_root).as_posix()
+                    items.append(
+                        DataFileListItem(
+                            filename=file_path.name,
+                            stored_path=stored_path,
+                            row_count=None,
+                            source="preloaded",
+                        )
+                    )
+
+        if results_dir.exists():
+            output_extensions = frozenset({".csv", ".json"})
+            for file_path in sorted(results_dir.rglob("*")):
+                if file_path.is_file() and file_path.suffix.lower() in output_extensions:
+                    stored_path = file_path.relative_to(project_root).as_posix()
+                    items.append(
+                        DataFileListItem(
+                            filename=file_path.name,
+                            stored_path=stored_path,
+                            row_count=None,
+                            source="output",
                         )
                     )
 

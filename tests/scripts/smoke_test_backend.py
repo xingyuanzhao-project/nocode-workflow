@@ -8,7 +8,7 @@ Exercises the full contract a real client would use::
     /api/flow/run                            -> enqueues a run
     /api/flow/status/{run_id}                -> polled to success
     /api/flow/runs/{run_id}/preview          -> first rows of summary.csv
-    /api/flow/runs/{run_id}/artifacts/...    -> streamed CSV download
+    /api/flow/runs/{run_id}/output           -> streamed CSV download
     /api/flow/runs/{run_id}/logs/stream      -> SSE log relay (second run)
 
 Expected environment
@@ -265,7 +265,6 @@ def _build_smoke_flow(
                 "type": "csv_output",
                 "config": {
                     "output_path": "summary.csv",
-                    "artifact_paths": ["results.csv", "states.csv", "spans.csv"],
                     "extend": False,
                 },
             },
@@ -298,17 +297,12 @@ def _build_smoke_flow(
     }
 
 
-def _download_artifact(
-    base_url: str, run_id: str, artifact_name: str
-) -> bytes:
-    """Download a run's artifact CSV as raw bytes.
+def _download_output(base_url: str, run_id: str) -> bytes:
+    """Download a run's output CSV as raw bytes.
 
     Args:
         base_url (str): Backend base URL.
         run_id (str): Run identifier.
-        artifact_name (str): One of ``summary``, ``results``, ``states``,
-            ``spans``. Validated server-side against
-            :class:`server.schemas.results.ArtifactName`.
 
     Returns:
         bytes: Raw CSV bytes from the response body.
@@ -317,7 +311,7 @@ def _download_artifact(
         urllib.error.HTTPError: If the response status is non-2xx.
     """
     request = urllib.request.Request(
-        f"{base_url}/api/flow/runs/{run_id}/artifacts/{artifact_name}",
+        f"{base_url}/api/flow/runs/{run_id}/output",
         method="GET",
     )
     with urllib.request.urlopen(request) as response:
@@ -524,7 +518,7 @@ def _run_smoke_test() -> None:
         "GET",
         base_url,
         f"/api/flow/runs/{run_id}/preview"
-        f"?artifact=summary&limit={_DEFAULT_PREVIEW_ROW_LIMIT}",
+        f"?limit={_DEFAULT_PREVIEW_ROW_LIMIT}",
     )
     preview_row_count = len(preview_dto.get("preview_rows", []))
     total_row_count = preview_dto.get("total_row_count", 0)
@@ -539,7 +533,7 @@ def _run_smoke_test() -> None:
             f"preview returned no rows: total_row_count={total_row_count}, "
             f"preview_rows={preview_row_count}"
         )
-    summary_bytes = _download_artifact(base_url, run_id, "summary")
+    summary_bytes = _download_output(base_url, run_id)
     print(f"  summary.csv downloaded ({len(summary_bytes)} bytes)")
     if len(summary_bytes) < len(",".join(preview_columns)):
         raise RuntimeError(

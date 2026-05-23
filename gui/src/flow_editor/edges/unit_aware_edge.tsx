@@ -45,12 +45,7 @@ function readNodeSummary(
   const category_value = data.category;
   return {
     label: label_value,
-    unit:
-      unit_value === "row" ||
-      unit_value === "document" ||
-      unit_value === "entity"
-        ? (unit_value as UnitValue)
-        : null,
+    unit: unit_value === "row" ? "row" : null,
     category:
       typeof category_value === "string" ? category_value : null,
   };
@@ -68,6 +63,7 @@ export function UnitAwareEdge(props: EdgeProps): JSX.Element {
     source,
     target,
     markerEnd,
+    markerStart,
     style,
   } = props;
 
@@ -109,6 +105,7 @@ export function UnitAwareEdge(props: EdgeProps): JSX.Element {
       <BaseEdge
         id={id}
         path={edge_path}
+        markerStart={markerStart}
         markerEnd={markerEnd}
         style={{
           ...style,

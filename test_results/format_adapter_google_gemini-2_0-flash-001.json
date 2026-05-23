@@ -1,0 +1,13 @@
+{
+  "model": "google/gemini-2.0-flash-001",
+  "success": true,
+  "parse_success": true,
+  "raw_length": 200,
+  "raw_preview": "```json\n{\n  \"summary\": \"The city council unanimously approved a new park project following strong community support, with construction slated to begin in spring 2027.\",\n  \"sentiment\": \"positive\"\n}\n```",
+  "result": {
+    "summary": "The city council unanimously approved a new park project following strong community support, with construction slated to begin in spring 2027.",
+    "sentiment": "positive"
+  },
+  "used_response_format": false,
+  "error": null
+}

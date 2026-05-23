@@ -248,11 +248,6 @@ def build_conversation_summary_flow(
                 "type": "csv_output",
                 "config": {
                     "output_path": "integration/summary.csv",
-                    "artifact_paths": [
-                        "integration/results.csv",
-                        "integration/states.csv",
-                        "integration/spans.csv",
-                    ],
                     "extend": False,
                 },
             },

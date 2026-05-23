@@ -1,8 +1,8 @@
 /**
  * Typed node for ``csv_output`` / ``json_output`` palette items.
  *
- * Holds the on-disk output path plus optional extra artifact paths and
- * the ``extend`` flag (``true`` = append to existing file, ``false`` =
+ * Holds the on-disk output path, output field names, and the
+ * ``extend`` flag (``true`` = append to existing file, ``false`` =
  * overwrite).
  */
 
@@ -16,8 +16,8 @@ export class OutputNode extends BaseNode {
   readonly label: string;
 
   output_path: string = "results/output.csv";
-  artifact_paths: string[] = [];
   extend: boolean = false;
+  output_fields: string[] = ["summary"];
 
   constructor(
     id: string,
@@ -36,17 +36,17 @@ export class OutputNode extends BaseNode {
       typeof config.output_path === "string"
         ? config.output_path
         : "results/output.csv";
-    this.artifact_paths = Array.isArray(config.artifact_paths)
-      ? config.artifact_paths.map(String)
-      : [];
     this.extend = config.extend === true;
+    this.output_fields = Array.isArray(config.output_fields)
+      ? config.output_fields.map(String).filter(Boolean)
+      : ["summary"];
   }
 
   emit_config(): Record<string, unknown> {
     return {
       output_path: this.output_path,
-      artifact_paths: [...this.artifact_paths],
       extend: this.extend,
+      output_fields: [...this.output_fields],
     };
   }
 
@@ -63,8 +63,8 @@ export class OutputNode extends BaseNode {
       label: this.label,
       category: this.category,
       output_path: this.output_path,
-      artifact_paths: [...this.artifact_paths],
       extend: this.extend,
+      output_fields: [...this.output_fields],
     };
   }
 }

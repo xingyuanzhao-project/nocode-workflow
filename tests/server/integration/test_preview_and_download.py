@@ -1,4 +1,4 @@
-"""Integration tests for the results preview and artifact download endpoints."""
+"""Integration tests for the results preview and output download endpoints."""
 
 from __future__ import annotations
 
@@ -40,9 +40,8 @@ class TestPreviewEndpointAgainstLiveRun:
     def test_preview_shows_at_least_one_row(self, succeeded_run_id: str) -> None:
         preview = request_json(
             "GET",
-            f"/api/flow/runs/{succeeded_run_id}/preview?artifact=summary&limit=10",
+            f"/api/flow/runs/{succeeded_run_id}/preview?limit=10",
         )
-        assert preview["artifact_name"] == "summary"
         assert preview["total_row_count"] >= 1
         assert len(preview["preview_rows"]) >= 1
 
@@ -51,16 +50,16 @@ class TestPreviewEndpointAgainstLiveRun:
     ) -> None:
         preview = request_json(
             "GET",
-            f"/api/flow/runs/{succeeded_run_id}/preview?artifact=summary&limit=5",
+            f"/api/flow/runs/{succeeded_run_id}/preview?limit=5",
         )
         assert preview["total_row_count"] >= len(preview["preview_rows"])
 
 
-class TestArtifactDownloadAgainstLiveRun:
-    def test_summary_artifact_downloads_as_csv(self, succeeded_run_id: str) -> None:
+class TestOutputDownloadAgainstLiveRun:
+    def test_output_downloads_as_csv(self, succeeded_run_id: str) -> None:
         with httpx.Client(base_url=DEFAULT_BASE_URL, timeout=30.0) as client:
             response = client.get(
-                f"/api/flow/runs/{succeeded_run_id}/artifacts/summary"
+                f"/api/flow/runs/{succeeded_run_id}/output"
             )
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/csv")

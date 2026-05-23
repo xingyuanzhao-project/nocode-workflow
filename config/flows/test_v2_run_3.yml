@@ -1,0 +1,77 @@
+﻿flow:
+  name: test_v2_run_3
+  description: "V2 test: JSONL bill summarization with input_columns and output_fields"
+
+  nodes:
+    - id: input_1
+      type: json_input
+      config:
+        selected_file: data/ncsl_bills.jsonl
+        input_columns:
+          - role: text
+            column: html
+          - role: doc_id
+            column: bill_id
+
+    - id: proc_1
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Summarize the following legislative bill text in 2-3 sentences in English."
+            - "Focus on the main policy changes or requirements introduced by the bill."
+            - "If the text is unreadable or empty, set {info_found_label}=FALSE and {summary_label}=empty string."
+            - "Return your answer in the {summary_label} field."
+        io_schema:
+          output:
+            info_found:
+              type: string
+            relevant_context:
+              type: array
+            summary:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: google/gemini-2.0-flash-001
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0
+        max_tokens: 512
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/test_v2_run_3/output.csv
+        output_fields:
+          - bill_summary
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_1
+    - type: feedforward
+      source: proc_1
+      target: output_1
+    - type: llm_call
+      source: proc_1
+      target: llm_1
+
+  settings:
+    processing_limit: 2
+    async:
+      enabled: true
+      max_concurrent_rows: 2
+      max_concurrent_llm_calls: 2
+      max_retries: 3
+    logging:
+      file: results_custom/test_v2_run_3/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: false
+    prompts: config/prompts.json

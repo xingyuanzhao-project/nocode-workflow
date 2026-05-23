@@ -1,4 +1,4 @@
-"""Route tests for the preview + artifact download endpoints."""
+"""Route tests for the preview + output download endpoints."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 
 class TestPreviewEndpoint:
-    def test_preview_default_artifact(
+    def test_preview_default(
         self, test_client: TestClient, summary_csv_fixture_path: Path
     ) -> None:
         response = test_client.get(
@@ -16,7 +16,6 @@ class TestPreviewEndpoint:
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["artifact_name"] == "summary"
         assert len(body["preview_rows"]) == 5
         assert body["total_row_count"] == 30
 
@@ -36,29 +35,21 @@ class TestPreviewEndpoint:
         )
         assert response.status_code == 422
 
-    def test_preview_rejects_unknown_artifact(
-        self, test_client: TestClient, summary_csv_fixture_path: Path
-    ) -> None:
-        response = test_client.get(
-            "/api/flow/runs/preview_fixture_run/preview?artifact=bogus"
-        )
-        assert response.status_code == 422
-
     def test_preview_missing_file_returns_404(
         self, test_client: TestClient
     ) -> None:
         response = test_client.get(
-            "/api/flow/runs/does_not_exist/preview?artifact=summary"
+            "/api/flow/runs/does_not_exist/preview"
         )
         assert response.status_code == 404
 
 
-class TestArtifactDownloadEndpoint:
-    def test_download_summary_returns_csv(
+class TestOutputDownloadEndpoint:
+    def test_download_output_returns_csv(
         self, test_client: TestClient, summary_csv_fixture_path: Path
     ) -> None:
         response = test_client.get(
-            "/api/flow/runs/preview_fixture_run/artifacts/summary"
+            "/api/flow/runs/preview_fixture_run/output"
         )
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/csv")
@@ -68,18 +59,10 @@ class TestArtifactDownloadEndpoint:
         ]
         assert b"entity_id,summary" in response.content
 
-    def test_download_missing_artifact_returns_404(
+    def test_download_missing_output_returns_404(
         self, test_client: TestClient
     ) -> None:
         response = test_client.get(
-            "/api/flow/runs/nothing/artifacts/summary"
+            "/api/flow/runs/nothing/output"
         )
         assert response.status_code == 404
-
-    def test_download_rejects_unknown_artifact_name(
-        self, test_client: TestClient
-    ) -> None:
-        response = test_client.get(
-            "/api/flow/runs/anything/artifacts/bogus_name"
-        )
-        assert response.status_code == 422

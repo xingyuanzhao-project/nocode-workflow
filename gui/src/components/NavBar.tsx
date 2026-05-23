@@ -18,6 +18,7 @@ interface NavEntry {
 
 const PRIMARY_NAV_ENTRIES: NavEntry[] = [
   { to: "/flows", label: "Flows" },
+  { to: "/runs", label: "Runs" },
   { to: "/data", label: "Data" },
   { to: "/codebook", label: "Codebook" },
   { to: "/settings", label: "API Keys" },
@@ -30,7 +31,7 @@ export function NavBar(): JSX.Element {
   return (
     <header className="flex h-14 items-center border-b bg-background px-6">
       <NavLink to="/flows" className="text-lg font-semibold tracking-tight">
-        agent_paper
+        Flow Editor
       </NavLink>
       <nav className="ml-8 flex gap-1 text-sm">
         {PRIMARY_NAV_ENTRIES.map((entry) => (

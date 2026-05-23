@@ -32,5 +32,18 @@ export const runStatusDtoSchema = z.object({
   finished_at: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
   completed_entity_count: z.number().int().nonnegative().default(0),
+  total_row_count: z.number().int().nonnegative().default(0),
 });
 export type RunStatusDTO = z.infer<typeof runStatusDtoSchema>;
+
+export const runListItemSchema = z.object({
+  run_id: z.string(),
+  status: runStatusSchema,
+  started_at: z.string().nullable().optional(),
+  finished_at: z.string().nullable().optional(),
+  flow_name: z.string().nullable().optional(),
+});
+export type RunListItem = z.infer<typeof runListItemSchema>;
+
+export const runListSchema = z.array(runListItemSchema);
+export type RunList = z.infer<typeof runListSchema>;

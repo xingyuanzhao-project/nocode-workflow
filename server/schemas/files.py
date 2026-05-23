@@ -74,6 +74,18 @@ class DataFileListResponse(BaseModel):
     files: List[DataFileListItem] = Field(default_factory=list)
 
 
+class ColumnHeadersResponse(BaseModel):
+    """Response of ``GET /api/files/columns``.
+
+    Attributes:
+        columns (List[str]): Column header names from the CSV file.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    columns: List[str] = Field(default_factory=list)
+
+
 class CSVUploadResponse(BaseModel):
     """Response of ``POST /api/files/upload``.
 

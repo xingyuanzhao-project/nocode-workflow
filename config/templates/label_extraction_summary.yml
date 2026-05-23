@@ -1,16 +1,9 @@
-# Preset template: Label Extraction + Summary (hybrid).
+# Preset template: Label Extraction + Summary.
 #
 # Pipeline shape:
-#   CSV input -> Processor (document, group_by entity)
-#             -> Processor (entity, hybrid)
-#             -> CSV output
-#   Each processor connects out to one shared LLM Call node, and the
-#   first processor consults the Codebook node.
-#
-# Target user: users with multiple documents per entity who want per-label
-# extractive spans aggregated into one entity-level summary. Sequential
-# chaining of previous_summary keeps the summary grounded in the cumulative
-# context as documents are processed in order.
+#   CSV input -> Processor (extract) -> Processor (summary) -> CSV output
+#   Both processors connect to one shared LLM Call node, and the first
+#   processor consults a Codebook node.
 #
 # Users start from this template, then edit:
 #   - input_1.config.selected_file    to the CSV they uploaded
@@ -19,22 +12,22 @@
 
 flow:
   name: label_extraction_summary
-  description: "Label extraction + sequential per-entity summary (hybrid mode)"
+  description: "Label extraction followed by summary"
 
   nodes:
     - id: input_1
       type: csv_input
       config:
         selected_file: data/df_text_by_report.csv
+        input_columns: ["text"]
 
     - id: proc_extract
       type: processor
       config:
-        unit: document
-        group_by: entity
+        unit: row
         prompt:
           instructions:
-            - "Extract codebook label spans from each document."
+            - "Extract codebook label spans from the text."
         io_schema:
           output:
             spans: string
@@ -42,11 +35,10 @@ flow:
     - id: proc_summary
       type: processor
       config:
-        unit: entity
-        mode: hybrid
+        unit: row
         prompt:
           instructions:
-            - "Synthesise the per-document spans into a single entity summary."
+            - "Synthesise the extracted spans into a concise summary."
         io_schema:
           output:
             summary: string
@@ -70,11 +62,7 @@ flow:
     - id: output_1
       type: csv_output
       config:
-        output_path: results_custom/label_extraction_summary_summary.csv
-        artifact_paths:
-          - results_custom/label_extraction_summary_results.csv
-          - results_custom/label_extraction_summary_states.csv
-          - results_custom/label_extraction_summary_spans.csv
+        output_path: results_custom/label_extraction_summary.csv
         extend: false
 
   edges:
@@ -108,4 +96,3 @@ flow:
       log_progress: true
     display:
       use_progress_bar: true
-    prompts: config/prompts.json

@@ -1,0 +1,7 @@
+{
+  "model": "mistralai/mistral-7b-instruct",
+  "success": false,
+  "parse_success": false,
+  "error": "Error code: 404 - {'error': {'message': 'No endpoints found for mistralai/mistral-7b-instruct.', 'code': 404}, 'user_id': 'user_3BEQTClb6HT0iKnh1UgZDrAB7Nc'}",
+  "used_response_format": true
+}

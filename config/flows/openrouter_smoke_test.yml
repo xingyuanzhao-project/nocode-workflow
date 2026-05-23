@@ -48,12 +48,10 @@ flow:
 
   steps:
     - type: conversation_summary_first
-      unit: document
-      group_by: entity
+      unit: row
 
     - type: conversation_summary_update
-      unit: document
-      group_by: entity
+      unit: row
 
   processing_limit: 2
 

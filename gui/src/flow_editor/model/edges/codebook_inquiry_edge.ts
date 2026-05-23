@@ -18,6 +18,7 @@ export class CodebookInquiryEdge extends BaseEdge {
   readonly source_handle: string | null = "cb-out";
   readonly target_handle: string | null = "data-in";
   readonly has_arrow = true;
+  override readonly has_start_arrow = true;
 
   constructor(source_node_id: string, target_node_id: string) {
     super("codebook_inquiry", source_node_id, target_node_id);

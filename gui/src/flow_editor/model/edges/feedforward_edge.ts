@@ -15,10 +15,7 @@
 
 import { BaseEdge } from "../base_edge";
 import type { BaseNode } from "../base_node";
-import {
-  ProcessorNode,
-  is_valid_unit_transition,
-} from "../nodes/processor_node";
+import { ProcessorNode } from "../nodes/processor_node";
 import { DataSourceNode } from "../nodes/data_source_node";
 import { OutputNode } from "../nodes/output_node";
 
@@ -48,17 +45,6 @@ export class FeedforwardEdge extends BaseEdge {
         `Feedforward edge cannot end at ${target_node.label} ` +
         `(${target_node.node_type}); only processors and outputs accept data.`
       );
-    }
-    if (
-      source_node instanceof ProcessorNode &&
-      target_node instanceof ProcessorNode
-    ) {
-      if (!is_valid_unit_transition(source_node.unit, target_node.unit)) {
-        return (
-          `Invalid unit transition: "${source_node.label}" (${source_node.unit}) ` +
-          `cannot feed "${target_node.label}" (${target_node.unit}).`
-        );
-      }
     }
     return null;
   }

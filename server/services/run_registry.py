@@ -58,7 +58,7 @@ from typing import Optional
 import redis
 
 from server.redis_client import build_redis_client
-from server.schemas.run import RunStatus, RunStatusDTO
+from server.schemas.run import RunListItem, RunStatus, RunStatusDTO
 from server.settings import ServerSettings, app_redis_url
 from server.storage.paths import ServerPaths
 from server.storage.run_paths import RunPaths
@@ -68,6 +68,7 @@ _STATUS_FIELD: str = "status"
 _STARTED_AT_FIELD: str = "started_at"
 _FINISHED_AT_FIELD: str = "finished_at"
 _ERROR_FIELD: str = "error"
+_TOTAL_ROW_COUNT_FIELD: str = "total_row_count"
 
 
 def _now_iso() -> str:
@@ -137,7 +138,7 @@ class RunRegistry:
         """
         return f"{self.key_prefix}:run:{run_id}"
 
-    def create(self, run_id: str) -> None:
+    def create(self, run_id: str, total_row_count: int = 0) -> None:
         """Initialise the hash for ``run_id`` with status ``queued``.
 
         Overwrites any prior terminal state, so calling :meth:`create`
@@ -147,17 +148,21 @@ class RunRegistry:
 
         Args:
             run_id (str): The run identifier.
+            total_row_count (int): Number of input rows the run will
+                process. Stored in the hash so the frontend can render
+                a deterministic progress bar.
 
         Returns:
             None.
         """
         key = self._key(run_id)
+        mapping = {
+            _STATUS_FIELD: RunStatus.QUEUED.value,
+            _TOTAL_ROW_COUNT_FIELD: str(total_row_count),
+        }
         pipeline = self.redis_client.pipeline()
         pipeline.delete(key)
-        pipeline.hset(
-            key,
-            mapping={_STATUS_FIELD: RunStatus.QUEUED.value},
-        )
+        pipeline.hset(key, mapping=mapping)
         pipeline.persist(key)
         pipeline.execute()
 
@@ -263,6 +268,11 @@ class RunRegistry:
         if not raw_hash:
             raise FileNotFoundError(f"Run not found: {run_id}")
         run_paths = RunPaths.for_run_id(self.paths, run_id)
+        raw_total = raw_hash.get(_TOTAL_ROW_COUNT_FIELD)
+        try:
+            total_row_count = int(raw_total) if raw_total else 0
+        except (TypeError, ValueError):
+            total_row_count = 0
         return RunStatusDTO(
             run_id=run_id,
             status=RunStatus(raw_hash.get(_STATUS_FIELD, RunStatus.QUEUED.value)),
@@ -270,7 +280,83 @@ class RunRegistry:
             finished_at=raw_hash.get(_FINISHED_AT_FIELD) or None,
             error=raw_hash.get(_ERROR_FIELD) or None,
             completed_entity_count=_count_completed_entities(run_paths),
+            total_row_count=total_row_count,
         )
+
+
+    def list_all(self) -> list[RunListItem]:
+        """Return a list of all known runs from Redis.
+
+        Scans for all keys matching the run hash pattern and returns
+        a :class:`RunListItem` for each. Results are sorted by
+        ``started_at`` descending (most recent first); runs without
+        a ``started_at`` appear last.
+
+        Returns:
+            list[RunListItem]: All runs currently in the registry.
+        """
+        pattern = f"{self.key_prefix}:run:*"
+        items: list[RunListItem] = []
+        cursor: int = 0
+        while True:
+            cursor, keys = self.redis_client.scan(
+                cursor=cursor, match=pattern, count=200
+            )
+            for key in keys:
+                raw_hash = self.redis_client.hgetall(key)
+                if not raw_hash:
+                    continue
+                run_id = key.removeprefix(f"{self.key_prefix}:run:")
+                flow_name = self._read_flow_name(run_id)
+                items.append(
+                    RunListItem(
+                        run_id=run_id,
+                        status=RunStatus(
+                            raw_hash.get(_STATUS_FIELD, RunStatus.QUEUED.value)
+                        ),
+                        started_at=raw_hash.get(_STARTED_AT_FIELD) or None,
+                        finished_at=raw_hash.get(_FINISHED_AT_FIELD) or None,
+                        flow_name=flow_name,
+                    )
+                )
+            if cursor == 0:
+                break
+        items.sort(
+            key=lambda item: item.started_at or "",
+            reverse=True,
+        )
+        return items
+
+    def _read_flow_name(self, run_id: str) -> Optional[str]:
+        """Attempt to read the flow name from the run's flow YAML.
+
+        Args:
+            run_id (str): The run identifier.
+
+        Returns:
+            Optional[str]: The flow name if found, ``None`` otherwise.
+        """
+        import yaml as _yaml
+
+        run_paths = RunPaths.for_run_id(self.paths, run_id)
+        try:
+            with run_paths.flow_yaml_path.open("r", encoding="utf-8") as fh:
+                doc = _yaml.safe_load(fh)
+        except (OSError, _yaml.YAMLError):
+            return None
+        if not isinstance(doc, dict):
+            return None
+        flow_block = doc.get("flow")
+        if isinstance(flow_block, dict):
+            name = flow_block.get("name")
+            if isinstance(name, str) and name:
+                return name
+            settings = flow_block.get("settings")
+            if isinstance(settings, dict):
+                name = settings.get("name")
+                if isinstance(name, str) and name:
+                    return name
+        return None
 
 
 def _count_completed_entities(run_paths: RunPaths) -> int:

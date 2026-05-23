@@ -390,11 +390,6 @@ def valid_flow_body(fixtures_dir: Path) -> Dict[str, Any]:
                 "type": "csv_output",
                 "config": {
                     "output_path": "results/fixture/summary.csv",
-                    "artifact_paths": [
-                        "results/fixture/results.csv",
-                        "results/fixture/states.csv",
-                        "results/fixture/spans.csv",
-                    ],
                     "extend": False,
                 },
             },

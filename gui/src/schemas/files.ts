@@ -24,6 +24,11 @@ export const dataFileListResponseSchema = z.object({
 });
 export type DataFileListResponse = z.infer<typeof dataFileListResponseSchema>;
 
+export const columnHeadersResponseSchema = z.object({
+  columns: z.array(z.string()).default([]),
+});
+export type ColumnHeadersResponse = z.infer<typeof columnHeadersResponseSchema>;
+
 export const csvUploadResponseSchema = z.object({
   upload_id: z.string(),
   filename: z.string(),

@@ -148,6 +148,13 @@ function FlowCanvasInner(): JSX.Element {
 
   const on_selection_change = useCallback(
     ({ nodes: selected_nodes }: { nodes: GraphNode[] }) => {
+      const current_selected = useGraphStore.getState().selected_node_id;
+      if (selected_nodes.length === 0 && current_selected !== null) {
+        const still_exists = useGraphStore.getState().typed_nodes.some(
+          (n) => n.id === current_selected,
+        );
+        if (still_exists) return;
+      }
       set_selected_node_id(selected_nodes[0]?.id ?? null);
     },
     [set_selected_node_id],

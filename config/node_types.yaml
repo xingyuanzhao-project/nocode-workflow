@@ -16,7 +16,7 @@
 #   category:               one of "data", "processor", "resource".
 #   label:                  short human-readable name.
 #   description:            longer explanation.
-#   default_unit:           one of "row", "document", "entity", or null.
+#   default_unit:           "row" for processors, null for others.
 #   consumes:               named context fields this node reads.
 #   produces:               named context fields this node writes.
 #   llm_backed:             true when the node issues LLM calls.
@@ -28,7 +28,7 @@
 #                           equivalent to the old behavior.
 #   default_prompt_ref:     prompt key in config/prompts.json used when
 #                           the step does not supply an override.
-#   default_group_by:       default FlowConfig.steps[*].group_by.
+#   default_group_by:       deprecated, ignored.
 
 version: 1
 entries:
@@ -37,7 +37,7 @@ entries:
   # ------------------------------------------------------------------
   - id: processor
     category: processor
-    label: Default Processor
+    label: Processor
     description: >-
       Generic processing step. Configure output schema and prompt
       instructions in the right-hand panel.
@@ -47,96 +47,8 @@ entries:
     llm_backed: true
     requires_resources: [llm_provider]
     default_prompt_ref: null
-    default_group_by: null
     default_io_schema:
       output: {}
-
-  - id: single_summary
-    category: processor
-    label: Single-document summary
-    description: >-
-      Summarise each row or document independently using one LLM call.
-    default_unit: row
-    consumes: [text]
-    produces: [summary]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: summary
-    default_group_by: null
-    default_io_schema: null
-
-  - id: conversation_summary_first
-    category: processor
-    label: Conversation summary (first)
-    description: >-
-      First document of a grouped entity conversation. No previous
-      summary is provided.
-    default_unit: document
-    consumes: [text]
-    produces: [summary]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: summary_first
-    default_group_by: entity
-    default_io_schema: null
-
-  - id: conversation_summary_update
-    category: processor
-    label: Conversation summary (update)
-    description: >-
-      Subsequent documents of a grouped entity conversation. Carries
-      the running summary from the prior turn.
-    default_unit: document
-    consumes: [text]
-    produces: [summary]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: summary_update
-    default_group_by: entity
-    default_io_schema: null
-
-  - id: classification
-    category: processor
-    label: Row-level taxonomy classification
-    description: >-
-      Classify each row's summary against every codebook key.
-    default_unit: row
-    consumes: [summary]
-    produces: [classification]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: classification
-    default_group_by: null
-    default_io_schema: null
-
-  - id: label_extraction
-    category: processor
-    label: Per-label span extraction
-    description: >-
-      Extract spans matching each codebook label from every document.
-    default_unit: document
-    consumes: [text]
-    produces: [spans]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: label_extraction
-    default_group_by: entity
-    default_io_schema: null
-
-  - id: label_summary
-    category: processor
-    label: Label-based summary
-    description: >-
-      Synthesise per-document extraction spans into an entity-level
-      summary. Supports hybrid and full_async modes.
-    default_unit: entity
-    consumes: [spans]
-    produces: [summary]
-    llm_backed: true
-    requires_resources: [llm_provider]
-    default_prompt_ref: label_summary
-    default_group_by: entity
-    default_io_schema: null
 
   # ------------------------------------------------------------------
   # data node types
@@ -147,7 +59,7 @@ entries:
     description: Select a CSV file from your uploaded data.
     default_unit: row
     consumes: []
-    produces: [text, entity_id, doc_id, sort_by]
+    produces: []
 
   - id: json_input
     category: data
@@ -155,7 +67,7 @@ entries:
     description: Select a JSON/JSONL file from your uploaded data.
     default_unit: row
     consumes: []
-    produces: [text, entity_id, doc_id, sort_by]
+    produces: []
 
   - id: csv_output
     category: data

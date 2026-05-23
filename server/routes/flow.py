@@ -35,6 +35,7 @@ Invariants enforced by this module
 
 from __future__ import annotations
 
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, status
@@ -54,11 +55,13 @@ from server.schemas.flow import (
     FlowSaveRequest,
     FlowSaveResponse,
 )
-from server.schemas.run import RunStartResponse, RunStatusDTO
+from server.schemas.run import RunListItem, RunStartResponse, RunStatusDTO
 from server.services.flow_repository import FlowRepository
 from server.services.run_dispatcher import RunDispatcher
 from server.services.run_registry import RunRegistry
 
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/flow", tags=["flow"])
 """Router exposing flow CRUD and run lifecycle endpoints."""
@@ -77,6 +80,28 @@ def list_flows(
         List[FlowListItem]: One entry per saved flow.
     """
     return repository.list()
+
+
+@router.get("/runs", response_model=List[RunListItem])
+def list_runs(
+    registry: RunRegistry = Depends(get_run_registry),
+) -> List[RunListItem]:
+    """Return a list of all known runs, most recent first.
+
+    Returns an empty list when no runs exist or when the registry
+    is temporarily unavailable (e.g. Redis not yet populated).
+
+    Args:
+        registry (RunRegistry): Injected run registry service.
+
+    Returns:
+        List[RunListItem]: Every run currently tracked in the registry.
+    """
+    try:
+        return registry.list_all()
+    except FileNotFoundError:
+        _log.debug("No runs found in registry, returning empty list")
+        return []
 
 
 @router.post("", response_model=FlowSaveResponse, status_code=status.HTTP_201_CREATED)
@@ -329,7 +354,7 @@ def get_run_status(
     run_id: str,
     registry: RunRegistry = Depends(get_run_registry),
 ) -> RunStatusDTO:
-    """Return the current status of ``run_id``.
+    """Return the current status of ``run_id`` from the Redis registry.
 
     Args:
         run_id (str): Run identifier.

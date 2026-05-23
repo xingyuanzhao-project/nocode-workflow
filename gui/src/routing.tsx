@@ -21,6 +21,7 @@ import { NavBar } from "@/components/NavBar";
 
 const MyFlowsPage = lazy(() => import("@/pages/MyFlowsPage"));
 const FlowEditorPage = lazy(() => import("@/pages/FlowEditorPage"));
+const RunsListPage = lazy(() => import("@/pages/RunsListPage"));
 const RunPage = lazy(() => import("@/pages/RunPage"));
 const DataPage = lazy(() => import("@/pages/DataPage"));
 const TaxonomyListPage = lazy(() => import("@/pages/TaxonomyListPage"));
@@ -59,6 +60,7 @@ const ROUTES: RouteObject[] = [
       { path: "flows", element: <MyFlowsPage /> },
       { path: "flows/new", element: <FlowEditorPage mode="new" /> },
       { path: "flows/:flow_id/edit", element: <FlowEditorPage mode="edit" /> },
+      { path: "runs", element: <RunsListPage /> },
       { path: "runs/:run_id", element: <RunPage /> },
       { path: "data", element: <DataPage /> },
       { path: "codebook", element: <TaxonomyListPage /> },

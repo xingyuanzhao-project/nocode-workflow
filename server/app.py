@@ -135,7 +135,7 @@ def create_app() -> FastAPI:
         key_prefix=settings.redis_key_prefix,
     )
     log_stream_service = build_log_stream_service(
-        settings=settings, registry=run_registry
+        settings=settings, registry=run_registry, paths=paths
     )
 
     application = FastAPI(

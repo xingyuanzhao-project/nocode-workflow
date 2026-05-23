@@ -1,0 +1,13 @@
+{
+  "model": "anthropic/claude-3.5-haiku",
+  "success": true,
+  "parse_success": true,
+  "raw_length": 192,
+  "raw_preview": "{\n  \"summary\": \"The city council unanimously approved a new park project after receiving strong public support, with construction planned to start in spring 2027.\",\n  \"sentiment\": \"positive\"\n}",
+  "result": {
+    "summary": "The city council unanimously approved a new park project after receiving strong public support, with construction planned to start in spring 2027.",
+    "sentiment": "positive"
+  },
+  "used_response_format": false,
+  "error": null
+}

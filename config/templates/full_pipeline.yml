@@ -1,24 +1,9 @@
-# Preset template: Full Pipeline (full-async label extraction + summary).
+# Preset template: Full Pipeline (extraction + summary).
 #
 # Pipeline shape:
-#   CSV input -> Processor (document, group_by entity)
-#             -> Processor (entity, full_async)
-#             -> CSV output
-#   Each processor connects out to one shared LLM Call node, and the
-#   first processor consults the Codebook node.
-#
-# Target user: experienced users running on hosted LLMs with generous
-# concurrency limits. Identical topology to label_extraction_summary but
-# with ``label_summary.mode: full_async`` so every per-document extraction
-# and every per-document summary runs concurrently inside each entity.
-# Synthesis then reconciles the per-document summaries into one entity-
-# level summary.
-#
-# This template is the most sophisticated valid pipeline expressible with
-# the current unit-compatibility rules (document -> entity). Classification
-# is a row-level step and cannot follow an entity-level summary; the user
-# can run the separate ``flat_summary_classification`` template against
-# the aggregated summary if they want classification on top.
+#   CSV input -> Processor (extract) -> Processor (summary) -> CSV output
+#   Both processors connect to one shared LLM Call node, and the first
+#   processor consults a Codebook node.
 #
 # Users start from this template, then edit:
 #   - input_1.config.selected_file    to the CSV they uploaded
@@ -28,22 +13,22 @@
 
 flow:
   name: full_pipeline
-  description: "Full async label extraction + per-entity summary synthesis"
+  description: "Label extraction followed by summary synthesis"
 
   nodes:
     - id: input_1
       type: csv_input
       config:
         selected_file: data/df_text_by_report.csv
+        input_columns: ["text"]
 
     - id: proc_extract
       type: processor
       config:
-        unit: document
-        group_by: entity
+        unit: row
         prompt:
           instructions:
-            - "Extract codebook label spans from each document."
+            - "Extract codebook label spans from the text."
         io_schema:
           output:
             spans: string
@@ -51,11 +36,10 @@ flow:
     - id: proc_summary
       type: processor
       config:
-        unit: entity
-        mode: full_async
+        unit: row
         prompt:
           instructions:
-            - "Synthesise per-document extractions into one entity summary."
+            - "Synthesise the extracted spans into a concise summary."
         io_schema:
           output:
             summary: string
@@ -80,10 +64,6 @@ flow:
       type: csv_output
       config:
         output_path: results_custom/full_pipeline_summary.csv
-        artifact_paths:
-          - results_custom/full_pipeline_results.csv
-          - results_custom/full_pipeline_states.csv
-          - results_custom/full_pipeline_spans.csv
         extend: false
 
   edges:
@@ -117,4 +97,3 @@ flow:
       log_progress: true
     display:
       use_progress_bar: true
-    prompts: config/prompts.json

@@ -1,6 +1,6 @@
 """Unit tests for :class:`server.services.results_preview.ResultsPreviewService`.
 
-The service reads the artifact CSV from the per-run directory. Tests
+The service reads the output CSV from the per-run directory. Tests
 use the ``summary_csv_fixture_path`` fixture (from conftest) which
 copies ``summary.csv`` into ``<run_dir>/summary.csv`` so the service
 resolves it naturally.
@@ -13,7 +13,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from server.schemas.results import ArtifactName
 from server.services.results_preview import ResultsPreviewService
 
 
@@ -35,11 +34,9 @@ class TestResultsPreviewHappyPath:
     ) -> None:
         response = results_service.read_preview(
             run_id="preview_fixture_run",
-            artifact_name=ArtifactName.SUMMARY,
             limit=5,
         )
         assert response.run_id == "preview_fixture_run"
-        assert response.artifact_name == ArtifactName.SUMMARY
         assert len(response.preview_rows) == 5
 
     def test_total_row_count_excludes_header(
@@ -49,7 +46,6 @@ class TestResultsPreviewHappyPath:
     ) -> None:
         response = results_service.read_preview(
             run_id="preview_fixture_run",
-            artifact_name=ArtifactName.SUMMARY,
             limit=3,
         )
         # Fixture summary.csv has 30 data rows.
@@ -62,31 +58,27 @@ class TestResultsPreviewHappyPath:
     ) -> None:
         response = results_service.read_preview(
             run_id="preview_fixture_run",
-            artifact_name=ArtifactName.SUMMARY,
             limit=1,
         )
         assert response.columns == ["entity_id", "summary", "info_found", "row_index"]
 
-    def test_resolve_artifact_path_returns_absolute(
+    def test_resolve_output_path_returns_absolute(
         self,
         results_service: ResultsPreviewService,
         summary_csv_fixture_path: Path,
     ) -> None:
-        resolved = results_service.resolve_artifact_path(
-            "preview_fixture_run", ArtifactName.SUMMARY
-        )
+        resolved = results_service.resolve_output_path("preview_fixture_run")
         assert resolved == summary_csv_fixture_path
         assert resolved.is_absolute()
 
 
 class TestResultsPreviewErrors:
-    def test_missing_artifact_raises_file_not_found(
+    def test_missing_output_raises_file_not_found(
         self, results_service: ResultsPreviewService
     ) -> None:
         with pytest.raises(FileNotFoundError):
             results_service.read_preview(
                 run_id="nothing_here",
-                artifact_name=ArtifactName.SUMMARY,
                 limit=5,
             )
 
@@ -98,7 +90,6 @@ class TestResultsPreviewErrors:
         with pytest.raises(ValueError, match="non-negative"):
             results_service.read_preview(
                 run_id="preview_fixture_run",
-                artifact_name=ArtifactName.SUMMARY,
                 limit=-1,
             )
 
@@ -113,7 +104,6 @@ class TestResultsPreviewNaNHandling:
         dataframe.to_csv(run_dir / "summary.csv", index=False)
         response = results_service.read_preview(
             run_id="nan_fixture_run",
-            artifact_name=ArtifactName.SUMMARY,
             limit=10,
         )
         assert response.preview_rows[0]["summary"] == "alpha"
