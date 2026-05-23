@@ -16,7 +16,7 @@ import httpx
 
 
 DEFAULT_BASE_URL: str = os.environ.get(
-    "AGENT_PAPER_INTEGRATION_BASE_URL", "http://127.0.0.1:8000"
+    "ACADEMIC_PIPELINE_INTEGRATION_BASE_URL", "http://127.0.0.1:8000"
 ).rstrip("/")
 
 

@@ -1,4 +1,4 @@
-# server/ — agent_paper Phase 2 backend
+# server/ — academic_pipeline Phase 2 backend
 
 FastAPI web process + Celery worker process, sharing Redis (for Celery
 broker/result backend and application run status) and the filesystem
@@ -203,43 +203,43 @@ processes.
 ## Configuration
 
 All tunables read from environment variables prefixed with
-`AGENT_PAPER_`, loaded into `server.settings.ServerSettings`:
+`ACADEMIC_PIPELINE_`, loaded into `server.settings.ServerSettings`:
 
 | Variable                               | Default                                                     |
 |----------------------------------------|-------------------------------------------------------------|
-| `AGENT_PAPER_REDIS_URL`                | `redis://localhost:6379`                                    |
-| `AGENT_PAPER_REDIS_BROKER_DB`          | `0`                                                         |
-| `AGENT_PAPER_REDIS_RESULT_DB`          | `1`                                                         |
-| `AGENT_PAPER_REDIS_APP_DB`             | `2`                                                         |
-| `AGENT_PAPER_REDIS_KEY_PREFIX`         | `agent_paper`                                               |
-| `AGENT_PAPER_DATA_DIR`                 | `<project_root>/server/data`                                |
-| `AGENT_PAPER_MAX_UPLOAD_BYTES`         | `524288000` (500 MiB)                                       |
-| `AGENT_PAPER_CELERY_RESULT_EXPIRES`    | `86400` (1 day)                                             |
-| `AGENT_PAPER_WORKER_SHUTDOWN_TIMEOUT`  | `60`                                                        |
-| `AGENT_PAPER_LOG_LEVEL`                | `INFO`                                                      |
-| `AGENT_PAPER_CORS_ORIGINS`             | `["http://localhost:5173"]`                                 |
+| `ACADEMIC_PIPELINE_REDIS_URL`                | `redis://localhost:6379`                                    |
+| `ACADEMIC_PIPELINE_REDIS_BROKER_DB`          | `0`                                                         |
+| `ACADEMIC_PIPELINE_REDIS_RESULT_DB`          | `1`                                                         |
+| `ACADEMIC_PIPELINE_REDIS_APP_DB`             | `2`                                                         |
+| `ACADEMIC_PIPELINE_REDIS_KEY_PREFIX`         | `academic_pipeline`                                         |
+| `ACADEMIC_PIPELINE_DATA_DIR`                 | `<project_root>/server/data`                                |
+| `ACADEMIC_PIPELINE_MAX_UPLOAD_BYTES`         | `524288000` (500 MiB)                                       |
+| `ACADEMIC_PIPELINE_CELERY_RESULT_EXPIRES`    | `86400` (1 day)                                             |
+| `ACADEMIC_PIPELINE_WORKER_SHUTDOWN_TIMEOUT`  | `60`                                                        |
+| `ACADEMIC_PIPELINE_LOG_LEVEL`                | `INFO`                                                      |
+| `ACADEMIC_PIPELINE_CORS_ORIGINS`             | `["http://localhost:5173"]`                                 |
 
 ## Render deployment (not yet deployed)
 
 The repository-root `render.yaml` describes the target Render
 Blueprint. Four services are declared:
 
-- `agent-paper-api` — Docker web service, runs
+- `academic-pipeline-api` — Docker web service, runs
   `uvicorn server.app:create_app --factory`.
-- `agent-paper-celery-worker` — Docker worker service, runs
+- `academic-pipeline-celery-worker` — Docker worker service, runs
   `celery -A server.celery_app worker --pool=solo --concurrency=1`.
-- `agent-paper-redis` — managed Redis for broker, result backend,
+- `academic-pipeline-redis` — managed Redis for broker, result backend,
   application state, and the SSE pubsub channel.
-- `agent-paper-gui` — static site built from `gui/` (Vite).
+- `academic-pipeline-gui` — static site built from `gui/` (Vite).
 
 `render.yaml` is **committed but not deployed**. Before running
 `render deploy`:
 
-1. Set `OPENROUTER_API_KEY`, `AGENT_PAPER_CORS_ORIGINS`, and
+1. Set `OPENROUTER_API_KEY`, `ACADEMIC_PIPELINE_CORS_ORIGINS`, and
    `VITE_API_BASE_URL` in Render's dashboard (they are marked
    `sync: false` in the blueprint so the deploy script never
    overwrites them).
-2. Confirm the `agent-paper-redis` plan is appropriate for the
+2. Confirm the `academic-pipeline-redis` plan is appropriate for the
    workload; the blueprint defaults to the free tier.
 3. The blueprint mounts a 1 GiB persistent disk at
    `/app/server/data`. Uploaded CSVs and run artefacts live there;

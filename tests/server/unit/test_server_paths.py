@@ -49,7 +49,7 @@ class TestServerPathsFromSettings:
     ) -> None:
         outside = tmp_path / "outside_project"
         outside.mkdir()
-        monkeypatch.setenv("AGENT_PAPER_DATA_DIR", str(outside))
+        monkeypatch.setenv("ACADEMIC_PIPELINE_DATA_DIR", str(outside))
         settings = ServerSettings()
         with pytest.raises(ValueError, match="is not inside project root"):
             ServerPaths.from_settings(settings)

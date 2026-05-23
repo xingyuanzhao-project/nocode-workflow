@@ -1,4 +1,4 @@
-"""Standalone smoke-test scripts for the agent_paper backend.
+"""Standalone smoke-test scripts for the academic_pipeline backend.
 
 These scripts exercise the real running stack (docker compose) and
 real LLM endpoints. They are not part of the regular ``pytest`` suite

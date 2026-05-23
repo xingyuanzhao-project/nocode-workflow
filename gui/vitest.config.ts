@@ -1,5 +1,5 @@
 /**
- * Vitest configuration for the agent_paper GUI.
+ * Vitest configuration for the academic_pipeline GUI.
  *
  * Three independently-runnable test tiers, each under its own
  * directory:

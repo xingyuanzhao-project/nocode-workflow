@@ -1,4 +1,4 @@
-# Local development stack for the agent_paper backend.
+# Local development stack for the academic_pipeline backend.
 #
 # One image (server/Dockerfile) serves both the FastAPI web process
 # (uvicorn) and the Celery worker. Running both in containers keeps
@@ -24,19 +24,19 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: agent_paper_redis
+    container_name: academic_pipeline_redis
     ports:
       - "6379:6379"
     volumes:
-      - agent_paper_redis_data:/data
+      - academic_pipeline_redis_data:/data
     restart: unless-stopped
 
   web:
     build:
       context: .
       dockerfile: server/Dockerfile
-    image: agent_paper_backend:local
-    container_name: agent_paper_web
+    image: academic_pipeline_backend:local
+    container_name: academic_pipeline_web
     command: >-
       uvicorn server.app:create_app --factory
       --host 0.0.0.0 --port 8000
@@ -48,8 +48,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      AGENT_PAPER_REDIS_URL: redis://redis:6379
-      AGENT_PAPER_DATA_DIR: /app/server/data
+      ACADEMIC_PIPELINE_REDIS_URL: redis://redis:6379
+      ACADEMIC_PIPELINE_DATA_DIR: /app/server/data
     volumes:
       - ./src:/app/src
       - ./server:/app/server
@@ -62,8 +62,8 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
-    image: agent_paper_backend:local
-    container_name: agent_paper_celery_worker
+    image: academic_pipeline_backend:local
+    container_name: academic_pipeline_celery_worker
     command: >-
       celery -A server.celery_app worker
       --loglevel=info --pool=solo --concurrency=1
@@ -72,8 +72,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      AGENT_PAPER_REDIS_URL: redis://redis:6379
-      AGENT_PAPER_DATA_DIR: /app/server/data
+      ACADEMIC_PIPELINE_REDIS_URL: redis://redis:6379
+      ACADEMIC_PIPELINE_DATA_DIR: /app/server/data
     volumes:
       - ./src:/app/src
       - ./server:/app/server
@@ -83,4 +83,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  agent_paper_redis_data:
+  academic_pipeline_redis_data:

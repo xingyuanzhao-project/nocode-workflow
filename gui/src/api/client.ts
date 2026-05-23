@@ -1,5 +1,5 @@
 /**
- * Typed HTTP client for the agent_paper backend.
+ * Typed HTTP client for the academic_pipeline backend.
  *
  * Every API call in @/api/**.ts goes through :func:`requestJson`, which:
  *

@@ -1,4 +1,4 @@
-"""FastAPI application factory for the agent_paper web process.
+"""FastAPI application factory for the academic_pipeline web process.
 
 Wires :class:`server.settings.ServerSettings` into
 :class:`server.storage.paths.ServerPaths`, constructs every service
@@ -139,7 +139,7 @@ def create_app() -> FastAPI:
     )
 
     application = FastAPI(
-        title="agent_paper backend",
+        title="academic_pipeline backend",
         version="0.1.0",
     )
     application.state.settings = settings

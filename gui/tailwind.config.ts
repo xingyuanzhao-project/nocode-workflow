@@ -1,5 +1,5 @@
 /**
- * Tailwind configuration for the agent_paper GUI.
+ * Tailwind configuration for the academic_pipeline GUI.
  *
  * Uses a shadcn/ui-compatible theme (CSS variables for colours) so
  * individual UI components copied from shadcn/ui render correctly.

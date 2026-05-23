@@ -1,4 +1,4 @@
-"""Celery application factory for the agent_paper worker process.
+"""Celery application factory for the academic_pipeline worker process.
 
 Constructs the single :class:`celery.Celery` instance imported by both
 the web process (which calls :meth:`Celery.send_task`) and the worker
@@ -79,7 +79,7 @@ def _build_celery_app() -> Celery:
     """
     settings = get_settings()
     application = Celery(
-        "agent_paper",
+        "academic_pipeline",
         broker=broker_url(settings),
         backend=result_backend_url(settings),
         include=["server.workers.flow_task"],

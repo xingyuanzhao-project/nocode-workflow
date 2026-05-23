@@ -1,4 +1,4 @@
-# Live smoke-test flow for agent_paper port of messy_text.
+# Live smoke-test flow for academic_pipeline port of messy_text.
 #
 # Uses the HuggingFace Inference Providers OpenAI-compatible router
 # (https://router.huggingface.co/v1) with the HF token copied from

@@ -1,4 +1,4 @@
-"""Unified test suite for the agent_paper project.
+"""Unified test suite for the academic_pipeline project.
 
 Layout:
 

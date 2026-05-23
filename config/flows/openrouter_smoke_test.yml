@@ -1,4 +1,4 @@
-# Live smoke-test flow for agent_paper port of messy_text.
+# Live smoke-test flow for academic_pipeline port of messy_text.
 #
 # Uses the real OpenRouter OpenAI-compatible endpoint
 # (https://openrouter.ai/api/v1) with the OpenRouter key stored in

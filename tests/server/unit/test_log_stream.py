@@ -66,7 +66,7 @@ def log_stream_service(
     registry = _StaticRegistry(flip_after=2)
     return LogStreamService(
         async_redis_url="redis://unused/0",
-        key_prefix="agent_paper_test",
+        key_prefix="academic_pipeline_test",
         registry=registry,
     )
 
@@ -83,8 +83,8 @@ async def test_stream_yields_log_then_terminal_status(
     async def _publish_after_subscribe() -> None:
         # Give the subscriber a moment to subscribe before publishing.
         await asyncio.sleep(0.05)
-        await publisher.publish("agent_paper_test:logs:run_xyz", "line one")
-        await publisher.publish("agent_paper_test:logs:run_xyz", "line two")
+        await publisher.publish("academic_pipeline_test:logs:run_xyz", "line one")
+        await publisher.publish("academic_pipeline_test:logs:run_xyz", "line two")
 
     async def _collect() -> List[Dict[str, str]]:
         collected: List[Dict[str, str]] = []

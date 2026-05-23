@@ -59,7 +59,7 @@ def sse_test_client(
 
     rewired_service = LogStreamService(
         async_redis_url="redis://unused/0",
-        key_prefix="agent_paper_test",
+        key_prefix="academic_pipeline_test",
         registry=_ScriptedRegistry(flip_after=2),
     )
     test_client.app.state.log_stream_service = rewired_service
@@ -75,7 +75,7 @@ class TestLogStreamRoute:
         async def _publish_soon() -> None:
             await asyncio.sleep(0.1)
             await publisher.publish(
-                "agent_paper_test:logs:run_abc", '{"level":"INFO","message":"hello"}'
+                "academic_pipeline_test:logs:run_abc", '{"level":"INFO","message":"hello"}'
             )
 
         # Kick off the publisher on a background asyncio loop running

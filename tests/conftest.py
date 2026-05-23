@@ -139,11 +139,11 @@ def isolated_server_settings(
     """
     from server.settings import ServerSettings, get_settings
 
-    monkeypatch.setenv("AGENT_PAPER_DATA_DIR", str(isolated_data_dir))
+    monkeypatch.setenv("ACADEMIC_PIPELINE_DATA_DIR", str(isolated_data_dir))
     # Keep the real Redis URL out of tests so nothing accidentally
     # connects to a production instance via get_settings().
-    monkeypatch.setenv("AGENT_PAPER_REDIS_URL", "redis://fakeredis.invalid:6379")
-    monkeypatch.setenv("AGENT_PAPER_REDIS_KEY_PREFIX", "agent_paper_test")
+    monkeypatch.setenv("ACADEMIC_PIPELINE_REDIS_URL", "redis://fakeredis.invalid:6379")
+    monkeypatch.setenv("ACADEMIC_PIPELINE_REDIS_KEY_PREFIX", "academic_pipeline_test")
     get_settings.cache_clear()
     settings = ServerSettings()
     yield settings
@@ -232,7 +232,7 @@ def eager_celery_app() -> Celery:
     Returns:
         Celery: Eager-mode Celery application.
     """
-    application = Celery("agent_paper_tests")
+    application = Celery("academic_pipeline_tests")
     application.conf.update(
         task_always_eager=True,
         task_eager_propagates=True,

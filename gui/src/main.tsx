@@ -1,5 +1,5 @@
 /**
- * Browser entry point for the agent_paper GUI.
+ * Browser entry point for the academic_pipeline GUI.
  *
  * Mounts `<App />` into the `#root` element declared in index.html.
  * React strict mode is enabled so development catches

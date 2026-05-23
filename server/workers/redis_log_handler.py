@@ -64,7 +64,7 @@ import redis
 
 
 CURRENT_RUN_ID: ContextVar[Optional[str]] = ContextVar(
-    "agent_paper_current_run_id",
+    "academic_pipeline_current_run_id",
     default=None,
 )
 """Active run identifier for the current execution context.

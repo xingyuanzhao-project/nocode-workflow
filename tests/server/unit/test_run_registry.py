@@ -27,7 +27,7 @@ def run_registry(
     return RunRegistry(
         paths=server_paths,
         redis_client=fake_redis_client,
-        key_prefix="agent_paper_test",
+        key_prefix="academic_pipeline_test",
         terminal_ttl_seconds=60,
     )
 
@@ -37,7 +37,7 @@ class TestRunRegistryLifecycle:
         self, run_registry: RunRegistry, fake_redis_client
     ) -> None:
         run_registry.create("r1")
-        hash_contents = fake_redis_client.hgetall("agent_paper_test:run:r1")
+        hash_contents = fake_redis_client.hgetall("academic_pipeline_test:run:r1")
         assert hash_contents["status"] == RunStatus.QUEUED.value
         assert "started_at" not in hash_contents
 
@@ -46,7 +46,7 @@ class TestRunRegistryLifecycle:
     ) -> None:
         run_registry.create("r1")
         run_registry.mark_running("r1")
-        hash_contents = fake_redis_client.hgetall("agent_paper_test:run:r1")
+        hash_contents = fake_redis_client.hgetall("academic_pipeline_test:run:r1")
         assert hash_contents["status"] == RunStatus.RUNNING.value
         assert hash_contents["started_at"]
 
@@ -55,9 +55,9 @@ class TestRunRegistryLifecycle:
     ) -> None:
         run_registry.create("r1")
         run_registry.mark_succeeded("r1")
-        ttl = fake_redis_client.ttl("agent_paper_test:run:r1")
+        ttl = fake_redis_client.ttl("academic_pipeline_test:run:r1")
         assert 0 < ttl <= 60
-        hash_contents = fake_redis_client.hgetall("agent_paper_test:run:r1")
+        hash_contents = fake_redis_client.hgetall("academic_pipeline_test:run:r1")
         assert hash_contents["status"] == RunStatus.SUCCEEDED.value
         assert hash_contents["finished_at"]
 
@@ -70,7 +70,7 @@ class TestRunRegistryLifecycle:
         run_registry.create("r1")
         message = "short repr(exception) message"
         run_registry.mark_failed("r1", message)
-        hash_contents = fake_redis_client.hgetall("agent_paper_test:run:r1")
+        hash_contents = fake_redis_client.hgetall("academic_pipeline_test:run:r1")
         assert hash_contents["status"] == RunStatus.FAILED.value
         assert hash_contents["error"] == message
 
@@ -80,11 +80,11 @@ class TestRunRegistryLifecycle:
         run_registry.create("r1")
         run_registry.mark_failed("r1", "oops")
         run_registry.create("r1")  # Resume path.
-        hash_contents = fake_redis_client.hgetall("agent_paper_test:run:r1")
+        hash_contents = fake_redis_client.hgetall("academic_pipeline_test:run:r1")
         assert hash_contents["status"] == RunStatus.QUEUED.value
         assert "error" not in hash_contents
         # TTL cleared so the fresh entry is not auto-evicted.
-        assert fake_redis_client.ttl("agent_paper_test:run:r1") == -1
+        assert fake_redis_client.ttl("academic_pipeline_test:run:r1") == -1
 
 
 class TestRunRegistryGet:

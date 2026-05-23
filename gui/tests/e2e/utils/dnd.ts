@@ -16,7 +16,7 @@
 import type { Page } from "@playwright/test";
 
 /** MIME type the canvas's drop handler reads from ``DataTransfer``. */
-export const NODE_TYPE_DRAG_MIME_TYPE = "application/agent_paper_node_type";
+export const NODE_TYPE_DRAG_MIME_TYPE = "application/academic_pipeline_node_type";
 
 export interface DragPaletteEntryToCanvasOptions {
   /** Visible label text of the palette button, as a user sees it. */

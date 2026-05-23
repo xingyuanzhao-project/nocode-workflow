@@ -22,15 +22,15 @@ _REQUIRED_SERVICES: Set[str] = {"web", "celery_worker", "redis"}
 def require_running_stack() -> None:
     """Skip the calling module when the docker compose stack is not up.
 
-    Also skips when ``AGENT_PAPER_SKIP_INTEGRATION=1`` is set in the
+    Also skips when ``ACADEMIC_PIPELINE_SKIP_INTEGRATION=1`` is set in the
     environment so CI can opt out uniformly without needing the marker
     syntax.
 
     Returns:
         None. Raises :class:`pytest.skip.Exception` via ``pytest.skip``.
     """
-    if os.environ.get("AGENT_PAPER_SKIP_INTEGRATION", "").strip() == "1":
-        pytest.skip("AGENT_PAPER_SKIP_INTEGRATION=1 set; skipping.")
+    if os.environ.get("ACADEMIC_PIPELINE_SKIP_INTEGRATION", "").strip() == "1":
+        pytest.skip("ACADEMIC_PIPELINE_SKIP_INTEGRATION=1 set; skipping.")
     try:
         completed = subprocess.run(
             ["docker", "compose", "ps", "--services", "--filter", "status=running"],

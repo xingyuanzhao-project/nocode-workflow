@@ -5,7 +5,7 @@
  * renders one section per :class:`NodeTypeCategory` and one button
  * per :class:`NodeTypeEntry`. Users drag a palette entry onto the
  * canvas; :mod:`@/flow_editor/canvas/FlowCanvas` reads the
- * ``application/agent_paper_node_type`` dataTransfer string and
+ * ``application/academic_pipeline_node_type`` dataTransfer string and
  * appends a new node to the graph store.
  */
 
@@ -22,7 +22,7 @@ import type {
 } from "@/schemas/node_types";
 
 /** MIME type used by the palette/canvas drag-and-drop protocol. */
-export const NODE_TYPE_DRAG_MIME_TYPE = "application/agent_paper_node_type";
+export const NODE_TYPE_DRAG_MIME_TYPE = "application/academic_pipeline_node_type";
 
 const CATEGORY_LABELS: Record<NodeTypeCategory, string> = {
   data: "Data",

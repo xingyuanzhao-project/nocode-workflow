@@ -48,7 +48,7 @@ Invariants enforced by this module
   (guarded by :data:`_redis_log_handler_installed`). Double-attaching
   would cause every log line to be published twice.
 - The contextvar token from :func:`set_current_run_id` is stashed on
-  the task instance (``task.request.agent_paper_run_id_token``) so
+  the task instance (``task.request.academic_pipeline_run_id_token``) so
   :func:`on_task_postrun` can reset the correct token even when the
   task runs in a different context from the signal dispatcher.
 """
@@ -91,7 +91,7 @@ _MAX_ERROR_LENGTH: int = 2000
 :class:`server.services.run_registry.RunRegistry`'s ``error`` field."""
 
 
-_RUN_ID_TOKEN_ATTRIBUTE: str = "agent_paper_run_id_token"
+_RUN_ID_TOKEN_ATTRIBUTE: str = "academic_pipeline_run_id_token"
 """Attribute name used to stash the contextvar reset token on the task
 request. See :func:`on_task_prerun` and :func:`on_task_postrun`."""
 

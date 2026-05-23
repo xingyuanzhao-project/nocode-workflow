@@ -85,7 +85,7 @@ def _project_root_relative_posix(target: Path) -> str:
     except ValueError as exc:
         raise ValueError(
             f"{target} is not inside project root {_PROJECT_ROOT}; "
-            "set AGENT_PAPER_DATA_DIR to a path under the project root so "
+            "set ACADEMIC_PIPELINE_DATA_DIR to a path under the project root so "
             "host (Windows) and worker (container Linux) resolve the same "
             "relative paths in flow YAMLs."
         ) from exc

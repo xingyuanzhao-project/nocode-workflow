@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# test_all.sh -- run the full agent_paper test matrix in a strict fail-fast
+# test_all.sh -- run the full academic_pipeline test matrix in a strict fail-fast
 #                pipeline (POSIX / bash twin of scripts/test_all.ps1).
 #
 # Usage: scripts/test_all.sh [--integration] [-h|--help]

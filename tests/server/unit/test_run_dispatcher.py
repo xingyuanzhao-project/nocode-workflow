@@ -28,7 +28,7 @@ def run_dispatcher(
     registry = RunRegistry(
         paths=server_paths,
         redis_client=fake_redis_client,
-        key_prefix="agent_paper_test",
+        key_prefix="academic_pipeline_test",
         terminal_ttl_seconds=60,
     )
     return RunDispatcher(

@@ -1,5 +1,5 @@
 /**
- * React Router configuration for the agent_paper GUI.
+ * React Router configuration for the academic_pipeline GUI.
  *
  * One route per top-level page. Page components are imported lazily
  * so the initial bundle stays small; only the landing route is

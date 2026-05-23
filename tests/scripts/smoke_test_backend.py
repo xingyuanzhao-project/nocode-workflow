@@ -1,4 +1,4 @@
-"""End-to-end smoke test for the agent_paper Phase 2 backend.
+"""End-to-end smoke test for the academic_pipeline Phase 2 backend.
 
 Exercises the full contract a real client would use::
 
@@ -34,18 +34,18 @@ from the project ``.venv`` or from any plain interpreter.
 Environment overrides
 ---------------------
 
-- ``AGENT_PAPER_SMOKE_BASE_URL``: HTTP base URL (default
+- ``ACADEMIC_PIPELINE_SMOKE_BASE_URL``: HTTP base URL (default
   ``http://127.0.0.1:8000``).
-- ``AGENT_PAPER_SMOKE_CSV``: Path to the CSV to upload, resolved
+- ``ACADEMIC_PIPELINE_SMOKE_CSV``: Path to the CSV to upload, resolved
   relative to the current working directory. Default
   ``data/df_text_by_report.csv``.
-- ``AGENT_PAPER_SMOKE_PROCESSING_LIMIT``: ``processing_limit`` value
+- ``ACADEMIC_PIPELINE_SMOKE_PROCESSING_LIMIT``: ``processing_limit`` value
   used in the main flow (default ``1``).
-- ``AGENT_PAPER_SMOKE_POLL_TIMEOUT_SECONDS``: Poll timeout in seconds
+- ``ACADEMIC_PIPELINE_SMOKE_POLL_TIMEOUT_SECONDS``: Poll timeout in seconds
   (default ``600``).
-- ``AGENT_PAPER_SMOKE_POLL_INTERVAL_SECONDS``: Poll interval in
+- ``ACADEMIC_PIPELINE_SMOKE_POLL_INTERVAL_SECONDS``: Poll interval in
   seconds (default ``5``).
-- ``AGENT_PAPER_SMOKE_SSE_TIMEOUT_SECONDS``: Hard timeout on the SSE
+- ``ACADEMIC_PIPELINE_SMOKE_SSE_TIMEOUT_SECONDS``: Hard timeout on the SSE
   stream read stage (default ``180``).
 
 Exit codes
@@ -166,7 +166,7 @@ def _upload_csv(base_url: str, csv_path: pathlib.Path) -> Dict[str, Any]:
     """
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV not found at {csv_path}")
-    boundary = f"----agent_paper_smoke_{uuid.uuid4().hex}"
+    boundary = f"----academic_pipeline_smoke_{uuid.uuid4().hex}"
     content_bytes = csv_path.read_bytes()
     body = b"".join(
         [
@@ -444,21 +444,23 @@ def _poll_run_until_terminal(
 
 def _run_smoke_test() -> None:
     """Execute every stage in order, failing fast on the first error."""
-    base_url = _read_env("AGENT_PAPER_SMOKE_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
+    base_url = _read_env(
+        "ACADEMIC_PIPELINE_SMOKE_BASE_URL", _DEFAULT_BASE_URL
+    ).rstrip("/")
     csv_path = pathlib.Path(
-        _read_env("AGENT_PAPER_SMOKE_CSV", _DEFAULT_CSV_PATH)
+        _read_env("ACADEMIC_PIPELINE_SMOKE_CSV", _DEFAULT_CSV_PATH)
     )
     processing_limit = _read_env_int(
-        "AGENT_PAPER_SMOKE_PROCESSING_LIMIT", _DEFAULT_PROCESSING_LIMIT
+        "ACADEMIC_PIPELINE_SMOKE_PROCESSING_LIMIT", _DEFAULT_PROCESSING_LIMIT
     )
     poll_timeout_seconds = _read_env_int(
-        "AGENT_PAPER_SMOKE_POLL_TIMEOUT_SECONDS", _DEFAULT_POLL_TIMEOUT_SECONDS
+        "ACADEMIC_PIPELINE_SMOKE_POLL_TIMEOUT_SECONDS", _DEFAULT_POLL_TIMEOUT_SECONDS
     )
     poll_interval_seconds = _read_env_int(
-        "AGENT_PAPER_SMOKE_POLL_INTERVAL_SECONDS", _DEFAULT_POLL_INTERVAL_SECONDS
+        "ACADEMIC_PIPELINE_SMOKE_POLL_INTERVAL_SECONDS", _DEFAULT_POLL_INTERVAL_SECONDS
     )
     sse_timeout_seconds = _read_env_int(
-        "AGENT_PAPER_SMOKE_SSE_TIMEOUT_SECONDS", _DEFAULT_SSE_TIMEOUT_SECONDS
+        "ACADEMIC_PIPELINE_SMOKE_SSE_TIMEOUT_SECONDS", _DEFAULT_SSE_TIMEOUT_SECONDS
     )
 
     print(f"[config] base_url={base_url}")

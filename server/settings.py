@@ -2,8 +2,8 @@
 
 Every tunable read by :mod:`server.app`, :mod:`server.celery_app`, the
 workers, and the services lives on :class:`ServerSettings`. Settings are
-populated from environment variables prefixed with ``AGENT_PAPER_`` (for
-example ``AGENT_PAPER_REDIS_URL``) so production deployment reduces to a
+populated from environment variables prefixed with ``ACADEMIC_PIPELINE_`` (for
+example ``ACADEMIC_PIPELINE_REDIS_URL``) so production deployment reduces to a
 managed Redis URL and a data directory.
 
 Contents and relationships
@@ -85,7 +85,7 @@ class ServerSettings(BaseSettings):
             application (:mod:`server.services.run_registry`). Default
             ``2``.
         redis_key_prefix (str): Prefix applied to every application-owned
-            Redis key (for example ``agent_paper:run:<run_id>``) so the
+            Redis key (for example ``academic_pipeline:run:<run_id>``) so the
             DB namespace stays human-readable.
         max_upload_bytes (int): Upper bound on the size of an uploaded
             CSV, enforced by :class:`server.services.csv_uploader.CSVUploader`.
@@ -107,7 +107,7 @@ class ServerSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="AGENT_PAPER_",
+        env_prefix="ACADEMIC_PIPELINE_",
         env_file=str(_PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
@@ -120,7 +120,7 @@ class ServerSettings(BaseSettings):
     redis_broker_db: int = 0
     redis_result_db: int = 1
     redis_app_db: int = 2
-    redis_key_prefix: str = "agent_paper"
+    redis_key_prefix: str = "academic_pipeline"
 
     max_upload_bytes: int = 500 * 1024 * 1024
 

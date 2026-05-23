@@ -36,7 +36,7 @@ def proxy(
     return ModelListProxy(
         redis_client=fake_redis_client,
         http_client=async_http_client,
-        key_prefix="agent_paper_test",
+        key_prefix="academic_pipeline_test",
         cache_ttl_seconds=MODEL_CACHE_TTL_SECONDS,
     )
 
@@ -60,7 +60,7 @@ class TestModelListProxyCacheMissThenHit:
             "meta-llama/llama-3.1-70b-instruct",
             "openai/gpt-4o-mini",
         ]
-        cached_payload = fake_redis_client.get("agent_paper_test:models:openrouter")
+        cached_payload = fake_redis_client.get("academic_pipeline_test:models:openrouter")
         assert cached_payload is not None
         # The stored value is the serialised DTO, not the raw upstream JSON.
         assert "fetched_at" in json.loads(cached_payload)
