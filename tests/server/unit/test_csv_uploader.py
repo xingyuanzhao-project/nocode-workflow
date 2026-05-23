@@ -86,3 +86,17 @@ class TestCSVUploaderSampleCap:
         response = csv_uploader.accept("wide.csv", csv_bytes)
         for column in response.columns:
             assert len(column.sample_values) <= SAMPLE_VALUES_PER_COLUMN
+
+
+class TestCSVUploaderListFiles:
+    def test_includes_preloaded_project_data_files(
+        self, csv_uploader: CSVUploader
+    ) -> None:
+        files = csv_uploader.list_files().files
+        preloaded = next(
+            (item for item in files if item.stored_path == "data/df_text_by_report.csv"),
+            None,
+        )
+        assert preloaded is not None
+        assert preloaded.filename == "df_text_by_report.csv"
+        assert preloaded.source == "preloaded"

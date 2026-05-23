@@ -1,0 +1,13 @@
+{
+  "model": "meta-llama/llama-3.1-8b-instruct",
+  "success": true,
+  "parse_success": true,
+  "raw_length": 129,
+  "raw_preview": "{\n  \"summary\": \"The city council approved a new park project with unanimous support from residents.\",\n  \"sentiment\": \"positive\"\n}",
+  "result": {
+    "summary": "The city council approved a new park project with unanimous support from residents.",
+    "sentiment": "positive"
+  },
+  "used_response_format": false,
+  "error": null
+}

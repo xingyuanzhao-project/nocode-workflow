@@ -62,6 +62,24 @@ export function DataSourceConfigForm({
     });
   }, [files_query.data, allowed_extensions]);
 
+  const display_files = useMemo(() => {
+    if (selected_path.length === 0) {
+      return available_files;
+    }
+    if (available_files.some((file) => file.stored_path === selected_path)) {
+      return available_files;
+    }
+    return [
+      {
+        filename: selected_path.split("/").pop() ?? selected_path,
+        stored_path: selected_path,
+        row_count: null,
+        source: "selected",
+      },
+      ...available_files,
+    ];
+  }, [available_files, selected_path]);
+
   const input_columns = read_input_columns(node);
 
   const on_select = useCallback(
@@ -115,7 +133,7 @@ export function DataSourceConfigForm({
             onChange={(event) => on_select(event.target.value)}
           >
             <option value="">Select a file...</option>
-            {available_files.map((file) => (
+            {display_files.map((file) => (
               <option key={file.stored_path} value={file.stored_path}>
                 {file.filename}
               </option>

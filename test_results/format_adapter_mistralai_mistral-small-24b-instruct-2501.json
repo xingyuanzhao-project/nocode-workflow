@@ -1,0 +1,13 @@
+{
+  "model": "mistralai/mistral-small-24b-instruct-2501",
+  "success": true,
+  "parse_success": true,
+  "raw_length": 176,
+  "raw_preview": "```json\n{\n  \"summary\": \"The city council approved a new park project with strong resident support, and construction will start in spring 2027.\",\n  \"sentiment\": \"positive\"\n}\n```",
+  "result": {
+    "summary": "The city council approved a new park project with strong resident support, and construction will start in spring 2027.",
+    "sentiment": "positive"
+  },
+  "used_response_format": false,
+  "error": null
+}

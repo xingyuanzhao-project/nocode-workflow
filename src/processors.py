@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
+from src.format_adapter import adapt_request_kwargs, normalize_llm_response
 from src.io_schema import IOSchema, to_response_format
 
 
@@ -96,6 +97,8 @@ class GenericProcessor:
             "response_format": self._response_format,
         }
 
+        kwargs = adapt_request_kwargs(self.model_name, kwargs)
+
         self.logger.info(
             "[LLM INPUT] model=%s row=%d messages=%s",
             self.model_name, row_index, json.dumps(messages, ensure_ascii=False),
@@ -115,13 +118,12 @@ class GenericProcessor:
                 self.model_name, row_index, raw_content,
             )
 
-            parsed = json.loads(raw_content)
-            if not isinstance(parsed, dict):
-                raise ValueError(f"LLM returned non-object JSON: {type(parsed)}")
-
-            result: Dict[str, Any] = {}
-            for key in self._output_keys:
-                result[key] = parsed.get(key, "")
+            result, success = normalize_llm_response(raw_content, self._output_keys)
+            if not success:
+                self.logger.warning(
+                    "[LLM PARSE] model=%s row=%d normalization used fallback",
+                    self.model_name, row_index,
+                )
             return result
 
         except Exception as exc:

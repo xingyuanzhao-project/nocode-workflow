@@ -1,0 +1,13 @@
+{
+  "model": "openai/gpt-4o-mini",
+  "success": true,
+  "parse_success": true,
+  "raw_length": 217,
+  "raw_preview": "{\"summary\":\"The city council unanimously approved a new park project, which received strong support from residents due to a lack of green spaces, with construction set to start in spring 2027.\",\"senti",
+  "result": {
+    "summary": "The city council unanimously approved a new park project, which received strong support from residents due to a lack of green spaces, with construction set to start in spring 2027.",
+    "sentiment": "positive"
+  },
+  "used_response_format": true,
+  "error": null
+}

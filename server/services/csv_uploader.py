@@ -189,7 +189,7 @@ class CSVUploader:
         )
 
     def list_files(self) -> DataFileListResponse:
-        """List every data file in the uploads and results directories.
+        """List every data file in uploads, preloaded data, and results directories.
 
         Returns:
             DataFileListResponse: One entry per file (uploaded data files
@@ -216,7 +216,24 @@ class CSVUploader:
         depth = len(PurePosixPath(self.paths.data_dir_relative_posix).parts)
         for _ in range(depth):
             project_root = project_root.parent
+        preloaded_dir = project_root / "data"
         results_dir = project_root / "results_custom"
+
+        if preloaded_dir.exists():
+            for file_path in sorted(preloaded_dir.rglob("*")):
+                if (
+                    file_path.is_file()
+                    and file_path.suffix.lower() in SUPPORTED_UPLOAD_EXTENSIONS
+                ):
+                    stored_path = file_path.relative_to(project_root).as_posix()
+                    items.append(
+                        DataFileListItem(
+                            filename=file_path.name,
+                            stored_path=stored_path,
+                            row_count=None,
+                            source="preloaded",
+                        )
+                    )
 
         if results_dir.exists():
             output_extensions = frozenset({".csv", ".json"})
