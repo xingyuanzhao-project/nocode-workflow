@@ -140,7 +140,7 @@ def build_single_summary_flow(
             {
                 "id": "proc_1",
                 "type": "processor",
-                "config": {"unit": "row"},
+                "config": {"step_type": "single_summary", "unit": "row"},
             },
             {
                 "id": "llm_1",
@@ -218,12 +218,12 @@ def build_conversation_summary_flow(
             {
                 "id": "proc_first",
                 "type": "processor",
-                "config": {"unit": "document", "group_by": "entity"},
+                "config": {"step_type": "conversation_summary_first", "unit": "document", "group_by": "entity"},
             },
             {
                 "id": "proc_update",
                 "type": "processor",
-                "config": {"unit": "document", "group_by": "entity"},
+                "config": {"step_type": "conversation_summary_update", "unit": "document", "group_by": "entity"},
             },
             {
                 "id": "llm_1",

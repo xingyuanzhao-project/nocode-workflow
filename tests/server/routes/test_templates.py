@@ -25,7 +25,7 @@ class TestTemplateDetailRoute:
         assert response.status_code == 200
         body = response.json()
         assert body["id"] == "full_pipeline"
-        assert "steps" in body["flow"]
+        assert "nodes" in body["flow"]
 
     def test_get_unknown_template_returns_404(
         self, test_client: TestClient

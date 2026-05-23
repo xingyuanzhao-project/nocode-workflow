@@ -69,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.flow_builder import build_flow  # noqa: E402
 
 
-flow_config: str = "config/flows/openrouter_smoke_test.yml"
+flow_config: str = "server/data/flows/flat_summary_classification.yml"
 """Path (relative to the project root) of the YAML to execute.
 
 The referenced file is a combined workflow + settings specification

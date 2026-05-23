@@ -1,0 +1,67 @@
+﻿flow:
+  name: test_run_3
+  description: "E2E test: row-level key extraction, 2 rows"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/df_text_by_report.csv
+
+    - id: proc_1
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Extract the 3 most important keywords or key phrases from the following text. Return them as a comma-separated list in the {summary_label} field."
+        io_schema:
+          output:
+            info_found:
+              type: string
+            relevant_context:
+              type: array
+            summary:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: google/gemini-2.0-flash-001
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0
+        max_tokens: 256
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/test_run_3/summary.csv
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_1
+    - type: feedforward
+      source: proc_1
+      target: output_1
+    - type: llm_call
+      source: proc_1
+      target: llm_1
+
+  settings:
+    processing_limit: 2
+    async:
+      enabled: true
+      max_concurrent_rows: 2
+      max_concurrent_llm_calls: 2
+      max_retries: 3
+    logging:
+      file: results_custom/test_run_3/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: false
+    prompts: config/prompts.json

@@ -1,0 +1,63 @@
+﻿flow:
+  name: test_run_2
+  description: "E2E test: row-level classification, 2 rows"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/df_text_by_report.csv
+
+    - id: proc_1
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Classify the following text into one of these categories: violence, economic, political, social, other. Return only the category name in the summary field."
+        io_schema:
+          output:
+            summary:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: google/gemini-2.0-flash-001
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0
+        max_tokens: 256
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/test_run_2/summary.csv
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_1
+    - type: feedforward
+      source: proc_1
+      target: output_1
+    - type: llm_call
+      source: proc_1
+      target: llm_1
+
+  settings:
+    processing_limit: 2
+    async:
+      enabled: true
+      max_concurrent_rows: 2
+      max_concurrent_llm_calls: 2
+      max_retries: 3
+    logging:
+      file: results_custom/test_run_2/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: false
+    prompts: config/prompts.json

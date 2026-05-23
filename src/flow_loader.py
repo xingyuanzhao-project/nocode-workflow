@@ -1184,6 +1184,7 @@ def _build_taxonomy_path(node: NodeEntry) -> str:
 def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepConfig:
     """Build a :class:`StepConfig` from one ``processor`` node entry."""
     config = dict(node.config)
+    step_type = str(config.get("step_type") or "processor")
     unit = str(config.get("unit") or "row")
     group_by = config.get("group_by")
     group_by = (
@@ -1222,7 +1223,7 @@ def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepCon
     )
 
     return StepConfig(
-        type="processor",
+        type=step_type,
         unit=unit,
         group_by=group_by,
         llm=llm_resource_id,

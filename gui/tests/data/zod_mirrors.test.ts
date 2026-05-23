@@ -74,59 +74,65 @@ describe("node_types", () => {
 });
 
 describe("flow DTOs", () => {
-  it("flowBodySchema accepts the full_pipeline template shape", () => {
+  it("flowBodySchema accepts the new node-edge document shape", () => {
     expect(() =>
       flowBodySchema.parse({
-        schema_version: 1,
         name: "full_pipeline",
         description: "desc",
-        resources: [
+        nodes: [
           {
-            id: "default",
-            type: "llm_provider",
-            provider: "openrouter",
-            model: "meta-llama/llama-3.1-70b-instruct",
-            api_base: "https://openrouter.ai/api/v1",
-            api_key_env: "OPENROUTER_API_KEY",
-            temperature: 0,
-            max_tokens_summary: 1024,
-            max_tokens_classification: 256,
+            id: "input_1",
+            type: "csv_input",
+            config: { selected_file: "data/df.csv" },
+          },
+          {
+            id: "proc_1",
+            type: "processor",
+            config: { unit: "document", group_by: "entity" },
+          },
+          {
+            id: "llm_1",
+            type: "llm_call",
+            config: {
+              resource_id: "default",
+              provider: "openrouter",
+              model: "meta-llama/llama-3.1-70b-instruct",
+              api_key_env: "OPENROUTER_API_KEY",
+            },
+          },
+          {
+            id: "codebook_1",
+            type: "codebook",
+            config: { codebook_path: "config/taxonomy.json" },
+          },
+          {
+            id: "output_1",
+            type: "csv_output",
+            config: { output_path: "results/summary.csv" },
           },
         ],
-        data: {
-          input_csv: "data/df.csv",
-        },
-        taxonomy: "config/taxonomy.json",
-        prompts: "config/prompts.json",
-        steps: [
-          {
-            type: "label_extraction",
-            unit: "document",
-            group_by: "entity",
-          },
-          {
-            type: "label_summary",
-            unit: "entity",
-            mode: "full_async",
-          },
+        edges: [
+          { type: "feedforward", source: "input_1", target: "proc_1" },
+          { type: "feedforward", source: "proc_1", target: "output_1" },
+          { type: "llm_call", source: "proc_1", target: "llm_1" },
+          { type: "codebook_inquiry", source: "proc_1", target: "codebook_1" },
         ],
-        async: {
-          enabled: true,
-          max_concurrent_rows: 15,
-          max_concurrent_llm_calls: 50,
-          max_retries: 5,
+        settings: {
+          processing_limit: null,
+          async: {
+            enabled: true,
+            max_concurrent_rows: 15,
+            max_concurrent_llm_calls: 50,
+            max_retries: 5,
+          },
+          logging: {
+            file: "log.log",
+            log_progress: true,
+            log_prompts: false,
+            log_response: false,
+          },
+          display: { use_progress_bar: false },
         },
-        output: {
-          summary_csv: "results/summary.csv",
-          extend: false,
-        },
-        logging: {
-          file: "log.log",
-          log_progress: true,
-          log_prompts: false,
-          log_response: false,
-        },
-        display: { use_progress_bar: false },
       }),
     ).not.toThrow();
   });

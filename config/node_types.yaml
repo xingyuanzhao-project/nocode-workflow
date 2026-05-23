@@ -51,6 +51,93 @@ entries:
     default_io_schema:
       output: {}
 
+  - id: single_summary
+    category: processor
+    label: Single-document summary
+    description: >-
+      Summarise each row or document independently using one LLM call.
+    default_unit: row
+    consumes: [text]
+    produces: [summary]
+    llm_backed: true
+    requires_resources: [llm_provider]
+    default_prompt_ref: summary
+    default_group_by: null
+    default_io_schema: null
+
+  - id: conversation_summary_first
+    category: processor
+    label: Conversation summary (first)
+    description: >-
+      First document of a grouped entity conversation. No previous
+      summary is provided.
+    default_unit: document
+    consumes: [text]
+    produces: [summary]
+    llm_backed: true
+    requires_resources: [llm_provider]
+    default_prompt_ref: summary_first
+    default_group_by: entity
+    default_io_schema: null
+
+  - id: conversation_summary_update
+    category: processor
+    label: Conversation summary (update)
+    description: >-
+      Subsequent documents of a grouped entity conversation. Carries
+      the running summary from the prior turn.
+    default_unit: document
+    consumes: [text]
+    produces: [summary]
+    llm_backed: true
+    requires_resources: [llm_provider]
+    default_prompt_ref: summary_update
+    default_group_by: entity
+    default_io_schema: null
+
+  - id: classification
+    category: processor
+    label: Row-level taxonomy classification
+    description: >-
+      Classify each row's summary against every codebook key.
+    default_unit: row
+    consumes: [summary]
+    produces: [classification]
+    llm_backed: true
+    requires_resources: [llm_provider]
+    default_prompt_ref: classification
+    default_group_by: null
+    default_io_schema: null
+
+  - id: label_extraction
+    category: processor
+    label: Per-label span extraction
+    description: >-
+      Extract spans matching each codebook label from every document.
+    default_unit: document
+    consumes: [text]
+    produces: [spans]
+    llm_backed: true
+    requires_resources: [llm_provider]
+    default_prompt_ref: label_extraction
+    default_group_by: entity
+    default_io_schema: null
+
+  - id: label_summary
+    category: processor
+    label: Label-based summary
+    description: >-
+      Synthesise per-document extraction spans into an entity-level
+      summary. Supports hybrid and full_async modes.
+    default_unit: entity
+    consumes: [spans]
+    produces: [summary]
+    llm_backed: true
+    requires_resources: [llm_provider]
+    default_prompt_ref: label_summary
+    default_group_by: entity
+    default_io_schema: null
+
   # ------------------------------------------------------------------
   # data node types
   # ------------------------------------------------------------------

@@ -17,7 +17,8 @@ class TestListNodeTypes:
         entry_ids = {entry["id"] for entry in body["entries"]}
         for required in [
             "csv_input",
-            "llm_provider",
+            "llm_call",
+            "codebook",
             "single_summary",
             "classification",
             "label_extraction",

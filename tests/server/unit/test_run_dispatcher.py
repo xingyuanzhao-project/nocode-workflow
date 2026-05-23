@@ -67,25 +67,32 @@ class TestRunDispatcherSubmit:
         server_paths,
     ) -> None:
         flow_copy = copy.deepcopy(valid_flow_body)
-        # Explicitly set all four output slots so we can assert rewriting.
-        flow_copy["output"] = {
-            "summary_csv": "wherever/summary.csv",
-            "results_csv": "wherever/results.csv",
-            "states_csv": "wherever/states.csv",
-            "spans_csv": "wherever/spans.csv",
-        }
+        for node in flow_copy.get("nodes", []):
+            if node.get("type") in ("csv_output", "json_output"):
+                node["config"] = {
+                    "output_path": "wherever/summary.csv",
+                    "artifact_paths": [
+                        "wherever/results.csv",
+                        "wherever/states.csv",
+                        "wherever/spans.csv",
+                    ],
+                    "extend": False,
+                }
         response = run_dispatcher.submit(flow_copy)
         written_yaml = (
             server_paths.runs_dir / response.run_id / "flow.yml"
         ).read_text(encoding="utf-8")
-        rewritten = yaml.safe_load(written_yaml)["flow"]["output"]
+        rewritten_flow = yaml.safe_load(written_yaml)["flow"]
         expected_prefix = f"{server_paths.runs_dir_relative_posix}/{response.run_id}/"
-        assert rewritten["summary_csv"] == f"{expected_prefix}summary.csv"
-        assert rewritten["results_csv"] == f"{expected_prefix}results.csv"
-        assert rewritten["states_csv"] == f"{expected_prefix}states.csv"
-        assert rewritten["spans_csv"] == f"{expected_prefix}spans.csv"
-        # logging.file also rewritten.
-        logging_block = yaml.safe_load(written_yaml)["flow"]["logging"]
+        for node in rewritten_flow.get("nodes", []):
+            if node.get("type") in ("csv_output", "json_output"):
+                node_config = node.get("config", {})
+                assert node_config["output_path"] == f"{expected_prefix}summary.csv"
+                artifacts = node_config.get("artifact_paths", [])
+                assert artifacts[0] == f"{expected_prefix}results.csv"
+                assert artifacts[1] == f"{expected_prefix}states.csv"
+                assert artifacts[2] == f"{expected_prefix}spans.csv"
+        logging_block = rewritten_flow.get("settings", {}).get("logging", {})
         assert logging_block["file"].endswith(
             f"/{response.run_id}/worker.log"
         )

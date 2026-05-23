@@ -714,6 +714,18 @@ class FlowRunner:
                     "label_summary without a preceding label_extraction step; skipping.",
                 )
 
+
+            elif step.type == "processor":
+                # Generic processor dispatch from the graph format.
+                if step.keys is not None:
+                    processed_df = await self._run_classification(
+                        df=processed_df, step=step,
+                    )
+                else:
+                    processed_df = await self._run_single_summary(
+                        df=processed_df, step=step,
+                    )
+
             else:
                 raise NotImplementedError(
                     f"Step type {step.type!r} is not recognised by the runner."

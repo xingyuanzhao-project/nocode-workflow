@@ -226,6 +226,7 @@ def _build_smoke_flow(
                 "id": "proc_summary_first",
                 "type": "processor",
                 "config": {
+                    "step_type": "conversation_summary_first",
                     "unit": "document",
                     "group_by": "entity",
                 },
@@ -234,6 +235,7 @@ def _build_smoke_flow(
                 "id": "proc_summary_update",
                 "type": "processor",
                 "config": {
+                    "step_type": "conversation_summary_update",
                     "unit": "document",
                     "group_by": "entity",
                 },

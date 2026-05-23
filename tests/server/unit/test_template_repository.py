@@ -54,7 +54,7 @@ class TestTemplateRepository:
         )
         detail = repository.get("valid")
         assert detail.id == "valid"
-        assert "steps" in detail.flow
+        assert "nodes" in detail.flow
 
     def test_get_unknown_template_raises(
         self, template_fixture_dir: Path, flow_validator: FlowValidator

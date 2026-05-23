@@ -334,18 +334,97 @@ def flow_validator():
 
 @pytest.fixture
 def valid_flow_body(fixtures_dir: Path) -> Dict[str, Any]:
-    """Return the parsed ``conversation_summary.yml`` fixture's ``flow`` block.
-
-    Args:
-        fixtures_dir (Path): Fixtures directory.
+    """Return a minimal valid FlowDocument-shaped body for validation tests.
 
     Returns:
         Dict[str, Any]: Raw flow body ready to pass to a validator or
         the ``/api/schema/validate`` endpoint.
     """
-    with (fixtures_dir / "conversation_summary.yml").open("r", encoding="utf-8") as file_handle:
-        document = yaml.safe_load(file_handle)
-    return document["flow"]
+    return {
+        "name": "fixture_conversation_summary",
+        "description": "Valid fixture for the pytest suite.",
+        "nodes": [
+            {
+                "id": "input_1",
+                "type": "csv_input",
+                "config": {"selected_file": "data/df_text_by_report.csv"},
+            },
+            {
+                "id": "proc_first",
+                "type": "processor",
+                "config": {
+                    "step_type": "conversation_summary_first",
+                    "unit": "document",
+                    "group_by": "entity",
+                },
+            },
+            {
+                "id": "proc_update",
+                "type": "processor",
+                "config": {
+                    "step_type": "conversation_summary_update",
+                    "unit": "document",
+                    "group_by": "entity",
+                },
+            },
+            {
+                "id": "llm_1",
+                "type": "llm_call",
+                "config": {
+                    "resource_id": "default",
+                    "provider": "openrouter",
+                    "model": "meta-llama/llama-3.1-70b-instruct",
+                    "api_base": "https://openrouter.ai/api/v1",
+                    "api_key_env": "OPENROUTER_API_KEY",
+                    "temperature": 0.0,
+                    "max_tokens": 1024,
+                },
+            },
+            {
+                "id": "codebook_1",
+                "type": "codebook",
+                "config": {"codebook_path": "config/taxonomy.json"},
+            },
+            {
+                "id": "output_1",
+                "type": "csv_output",
+                "config": {
+                    "output_path": "results/fixture/summary.csv",
+                    "artifact_paths": [
+                        "results/fixture/results.csv",
+                        "results/fixture/states.csv",
+                        "results/fixture/spans.csv",
+                    ],
+                    "extend": False,
+                },
+            },
+        ],
+        "edges": [
+            {"type": "feedforward", "source": "input_1", "target": "proc_first"},
+            {"type": "feedforward", "source": "proc_first", "target": "proc_update"},
+            {"type": "feedforward", "source": "proc_update", "target": "output_1"},
+            {"type": "llm_call", "source": "proc_first", "target": "llm_1"},
+            {"type": "llm_call", "source": "proc_update", "target": "llm_1"},
+            {"type": "codebook_inquiry", "source": "proc_first", "target": "codebook_1"},
+        ],
+        "settings": {
+            "processing_limit": None,
+            "async": {
+                "enabled": True,
+                "max_concurrent_rows": 2,
+                "max_concurrent_llm_calls": 4,
+                "max_retries": 3,
+            },
+            "logging": {
+                "file": "results/fixture/processing.log",
+                "log_progress": True,
+                "log_prompts": False,
+                "log_response": False,
+            },
+            "display": {"use_progress_bar": False},
+            "prompts": "config/prompts.json",
+        },
+    }
 
 
 @pytest.fixture

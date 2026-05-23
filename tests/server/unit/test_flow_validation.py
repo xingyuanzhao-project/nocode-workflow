@@ -60,16 +60,17 @@ class TestFlowValidator:
         assert response.errors, "Invalid fixture should produce at least one error."
 
     def test_errors_preserve_loc_path(
-        self, flow_validator: FlowValidator, fixtures_dir: Path
+        self, flow_validator: FlowValidator,
     ) -> None:
-        response = flow_validator.validate(
-            _read_fixture_flow(fixtures_dir, "invalid_flow_absolute_path.yml")
-        )
-        # The offending field is ``data.input_csv``; the loc path should
-        # include the containing key so clients can render the error at
-        # the right field.
+        invalid_body = {
+            "name": "loc_test",
+            "nodes": "not_a_list",
+            "edges": [],
+        }
+        response = flow_validator.validate(invalid_body)
+        assert response.valid is False
         locations = [issue.loc for issue in response.errors]
-        assert any("input_csv" in segment for loc in locations for segment in loc)
+        assert any("nodes" in segment for loc in locations for segment in loc)
 
     def test_errors_are_typed(
         self, flow_validator: FlowValidator, fixtures_dir: Path
