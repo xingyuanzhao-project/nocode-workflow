@@ -7,13 +7,13 @@
  * ``input_csv`` / ``input_file`` in a flow.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload } from "lucide-react";
+import { Download, Upload } from "lucide-react";
 
 import { listDataFiles, uploadCsv } from "@/api/files";
 import { Button } from "@/components/ui/button";
-import { ApiError } from "@/api/client";
+import { ApiError, buildApiUrl } from "@/api/client";
 
 const DATA_FILES_QUERY_KEY = ["data-files"] as const;
 
@@ -55,6 +55,22 @@ export default function DataPage(): JSX.Element {
   );
 
   const all_files = files_query.data?.files ?? [];
+
+  const { input_files, output_files } = useMemo(() => {
+    const input: typeof all_files = [];
+    const output: typeof all_files = [];
+    for (const f of all_files) {
+      if (f.source === "output") {
+        output.push(f);
+      } else {
+        input.push(f);
+      }
+    }
+    return { input_files: input, output_files: output };
+  }, [all_files]);
+
+  const download_url = (stored_path: string) =>
+    buildApiUrl("/api/files/download?path=" + encodeURIComponent(stored_path));
 
   return (
     <div className="flex h-full flex-col">
@@ -102,35 +118,99 @@ export default function DataPage(): JSX.Element {
             No data files yet. Click &quot;Upload file&quot; to add one.
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                <th className="py-2 pr-3 font-medium">Filename</th>
-                <th className="py-2 pr-3 font-medium">Stored path</th>
-                <th className="py-2 font-medium">Rows</th>
-              </tr>
-            </thead>
-            <tbody>
-              {all_files.map((file_item) => (
-                <tr
-                  key={file_item.stored_path}
-                  className="border-b last:border-0"
-                >
-                  <td className="py-2 pr-3 font-medium">
-                    {file_item.filename}
-                  </td>
-                  <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">
-                    {file_item.stored_path}
-                  </td>
-                  <td className="py-2 text-xs text-muted-foreground">
-                    {file_item.row_count !== null
-                      ? file_item.row_count.toLocaleString()
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="space-y-6">
+            {input_files.length > 0 && (
+              <section>
+                <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                  Input Data
+                </h2>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                      <th className="py-2 pr-3 font-medium">Filename</th>
+                      <th className="py-2 pr-3 font-medium">Stored path</th>
+                      <th className="py-2 pr-3 font-medium">Rows</th>
+                      <th className="py-2 font-medium">Download</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {input_files.map((file_item) => (
+                      <tr
+                        key={file_item.stored_path}
+                        className="border-b last:border-0"
+                      >
+                        <td className="py-2 pr-3 font-medium">
+                          {file_item.filename}
+                        </td>
+                        <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">
+                          {file_item.stored_path}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-muted-foreground">
+                          {file_item.row_count !== null
+                            ? file_item.row_count.toLocaleString()
+                            : "—"}
+                        </td>
+                        <td className="py-2">
+                          <a
+                            href={download_url(file_item.stored_path)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Download className="h-3 w-3" />
+                            Download
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+
+            {output_files.length > 0 && (
+              <section>
+                <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                  Output Files
+                </h2>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                      <th className="py-2 pr-3 font-medium">Filename</th>
+                      <th className="py-2 pr-3 font-medium">Stored path</th>
+                      <th className="py-2 font-medium">Download</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {output_files.map((file_item) => (
+                      <tr
+                        key={file_item.stored_path}
+                        className="border-b last:border-0"
+                      >
+                        <td className="py-2 pr-3 font-medium text-emerald-600 dark:text-emerald-400">
+                          {file_item.filename}
+                        </td>
+                        <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">
+                          {file_item.stored_path}
+                        </td>
+                        <td className="py-2">
+                          <a
+                            href={download_url(file_item.stored_path)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Download className="h-3 w-3" />
+                            Download
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+          </div>
         )}
       </div>
     </div>

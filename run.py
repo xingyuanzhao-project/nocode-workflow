@@ -58,6 +58,28 @@ def _preflight() -> tuple[str, Path, str]:
     return str(venv_py), vite_js, node  # type: ignore[return-value]
 
 
+def _kill_port(port: int) -> None:
+    """Kill any process listening on the given port (Windows only)."""
+    import re as _re
+    try:
+        out = subprocess.check_output(
+            ["netstat", "-ano"], text=True, creationflags=0x08000000,
+        )
+        for line in out.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.split()
+                pid = int(parts[-1])
+                if pid > 0:
+                    subprocess.call(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    print(f"  Killed PID {pid} on port {port}", flush=True)
+    except Exception:
+        pass
+
+
 def _wait_for_port(port: int, timeout: float = 20.0) -> bool:
     """Block until *localhost:port* accepts a TCP connection."""
     deadline = time.monotonic() + timeout
@@ -72,6 +94,11 @@ def _wait_for_port(port: int, timeout: float = 20.0) -> bool:
 
 def main() -> None:
     venv_py, vite_js, node = _preflight()
+
+    print("Checking for existing processes on ports ...", flush=True)
+    _kill_port(BACKEND_PORT)
+    _kill_port(FRONTEND_PORT)
+    time.sleep(0.5)
 
     procs: list[subprocess.Popen] = []
 

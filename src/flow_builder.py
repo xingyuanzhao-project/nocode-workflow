@@ -1,95 +1,23 @@
-"""Configuration-driven flow builder and runner for MessyText pipelines.
+"""Configuration-driven flow builder and runner.
 
-This module turns a validated :class:`src.flow_loader.FlowSchema` into a
-ready-to-execute pipeline on top of the existing processors in
-:mod:`src.processors`. It contains no new processing logic: every LLM call,
-prompt construction, and JSON schema handling is delegated to the classes
-already defined in :mod:`src.processors`. The role of this module is strictly
-orchestration — wiring classes together according to the flow YAML,
-resolving step-level overrides against the node-type registry, and
-driving the processor loops.
+Turns a validated :class:`src.flow_loader.FlowSchema` into a ready-to-execute
+pipeline using :class:`src.processors.GenericProcessor`. The processor receives
+user-configured io_schema and prompt instructions, calls the LLM, and returns
+all response fields dynamically — no hardcoded field names.
 
-The flow YAML now stores an explicit graph (``flow.nodes[]`` /
-``flow.edges[]``); :class:`src.flow_loader.FlowSchema.load_from_path`
-parses the graph, runs the topological sort over feedforward edges,
-resolves each processor's ``llm_call`` and ``codebook_inquiry`` edges
-into the matching resource configs, and assembles a runtime
-:class:`src.flow_loader.FlowConfig` exposed as ``schema.flow``. This
-module reads ``schema.flow`` exactly as it always has — the graph
-compilation is invisible to the runtime path.
+The flow YAML stores an explicit graph (``flow.nodes[]`` / ``flow.edges[]``);
+:class:`src.flow_loader.FlowSchema.load_from_path` compiles the graph into a
+runtime :class:`src.flow_loader.FlowConfig` exposed as ``schema.flow``.
 
-Contents and relationships
---------------------------
-
-- :func:`build_flow` — public entry point. Loads and validates the flow
-  YAML, loads ``.env`` into ``os.environ``, loads the taxonomy and prompts
-  JSON files, loads the default :class:`src.node_registry.NodeTypeRegistry`,
-  constructs one :class:`openai.AsyncOpenAI` client per LLM resource, and
-  returns a :class:`FlowRunner`.
-- :class:`FlowRunner` — owns the execution loop. :meth:`FlowRunner.run`
-  loads the input CSV, dispatches each step in order, and writes the output
-  CSVs declared in :class:`src.flow_loader.OutputConfig`. Each dispatcher
-  calls :meth:`FlowRunner._resolve_processor_config_for_step` to obtain a
-  per-step processor config with ``io_schema_resolved`` and
-  ``prompt_resolved`` layered onto the resource-level base.
-- :class:`_ConversationSummaryPlan` — internal helper that pairs
-  ``conversation_summary_first`` with ``conversation_summary_update`` so
-  the two schema steps are executed as one sequential per-entity loop,
-  matching :mod:`scripts.run_summary_conversation`.
-- :func:`_load_dotenv_into_environ` — robust ``.env`` loader that uses
-  ``python-dotenv`` when available and falls back to a manual
-  ``KEY=VALUE`` parser when the dependency is not installed. The project
-  root is resolved from ``__file__``.
-- :func:`_resolve_resource_credentials` — normalises every resource so it
-  has a concrete ``api_base`` and a concrete ``api_key`` string after
-  reading ``api_key_env`` from the environment.
-- :func:`_build_processor_runtime_config` — shapes the nested dict that
-  :class:`src.processors.AsyncMessyTextProcessor` expects at construction
-  time. When called with a ``step`` + ``registry`` pair it also resolves
-  the step's :attr:`src.flow_loader.StepConfig.io_schema` (falling back
-  to the :class:`src.node_registry.NodeTypeEntry.default_io_schema`) and
-  the step's prompt (via :func:`src.prompt_resolver.resolve_step_prompt`),
-  and injects both under ``io_schema_resolved`` / ``prompt_resolved``.
-
-How the rest of the system uses this module
--------------------------------------------
-
-:mod:`scripts.run_custom_flow` is the only intended caller. It sets a
-module-level ``flow_config`` variable, calls :func:`build_flow`, and runs
-the returned :class:`FlowRunner`. Per-step I/O schema and prompt
-resolution happen lazily at dispatch time in
-:meth:`FlowRunner._resolve_processor_config_for_step`, so the flow YAML
-alone controls which schema and which prompt reach each LLM call.
-
-Invariants enforced by this module
-----------------------------------
-
-- Every LLM resource ends up with a non-empty ``api_key`` before any
-  client is constructed. ``api_key_env`` is resolved against
-  ``os.environ`` and a missing variable fails fast with a clear error.
-- Every :class:`src.flow_loader.StepConfig` referenced at runtime
-  corresponds to an implemented dispatcher. Step types declared in the
-  schema but not yet implemented raise :class:`NotImplementedError` with
-  an actionable message pointing at the existing script that still covers
-  that flow.
-- Every step-level I/O schema override is wrapped in
-  :class:`src.io_schema.IOSchema` before being injected into the
-  processor config, so downstream code can uniformly call
-  :func:`src.io_schema.to_response_format` on it.
-- Every step-level prompt override obeys the precedence documented in
-  :func:`src.prompt_resolver.resolve_step_prompt`: inline ``prompt`` >
-  ``prompts_ref`` + overrides > ``prompts_ref`` alone > registry default
-  > ``None`` (hardcoded fallback in the processor).
-- Output directories are created before any CSV is written.
-- Runner-owned state (``running_summary``,
-  :class:`src.processors.MessyTextConversationState`) is managed in
-  :class:`FlowRunner`, not in the processors.
+Public API:
+- :func:`build_flow` — loads YAML, resolves credentials, returns a FlowRunner.
+- :class:`FlowRunner` — owns execution. Dispatches each processor step via
+  ``_run_generic()`` which fires all rows concurrently.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -110,25 +38,9 @@ from src.flow_loader import (
 )
 from src.io_schema import IOSchema
 from src.node_registry import NodeTypeRegistry, get_default_registry
-from src.processors import (
-    AsyncLabelExtractor,
-    AsyncMessyTextConversationTurnProcessor,
-    AsyncMessyTextProcessor,
-    AsyncTextConversationOrchestrator,
-    AsyncTextLabelsSummaryProcessor,
-    MessyTextConversationState,
-    ProcessorResult,
-)
+from src.processors import GenericProcessor
 from src.prompt_resolver import ResolvedPrompt, resolve_step_prompt
-from src.recorders import (
-    flatten_spans_from_state,
-    serialize_result_entry,
-    serialize_state_entry,
-    write_results,
-    write_spans,
-    write_states,
-)
-from src.utils import is_informative_summary, setup_logger
+from src.utils import setup_logger
 
 
 _PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
@@ -393,39 +305,6 @@ def _load_json_file(json_path: Path) -> Dict[str, Any]:
     return payload
 
 
-class _ConversationSummaryPlan:
-    """Holder that marks whether the conversation summary pair has been executed.
-
-    The two schema steps ``conversation_summary_first`` and
-    ``conversation_summary_update`` are executed as a single sequential
-    per-entity loop (matching :mod:`scripts.run_summary_conversation`).
-    This helper records that the loop has already run so the second of
-    the two steps does not trigger a duplicate pass.
-
-    Attributes:
-        executed (bool): ``True`` once the per-entity loop has run.
-    """
-
-    def __init__(self) -> None:
-        """Initialise the plan with ``executed = False``."""
-        self.executed: bool = False
-
-
-class _LabelPlan:
-    """Holder that marks whether the label extraction + summary pair ran.
-
-    ``label_extraction`` and ``label_summary`` are tightly coupled: the
-    runner executes both in a single pass over entities. This flag
-    prevents the second step from triggering a duplicate pass.
-
-    Attributes:
-        executed (bool): ``True`` once the combined loop has run.
-    """
-
-    def __init__(self) -> None:
-        """Initialise the plan with ``executed = False``."""
-        self.executed: bool = False
-
 
 class _Checkpoint:
     """Entity-level checkpoint manager for resumable flows.
@@ -663,34 +542,12 @@ class FlowRunner:
             else next(iter(self.resolved_resources.values())).model
         )
 
-        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
-        has_entity_grouping = any(
-            s.type
-            in {
-                "conversation_summary_first",
-                "conversation_summary_update",
-                "label_extraction",
-                "label_summary",
-            }
-            or s.unit in {"document", "entity"}
-            for s in flow.steps
-        )
-
         if flow.processing_limit is not None:
-            if has_entity_grouping and entity_id_col in input_df.columns:
-                entity_ids = input_df[entity_id_col].unique()[: flow.processing_limit]
-                input_df = input_df[input_df[entity_id_col].isin(entity_ids)]
-            else:
-                input_df = input_df.head(flow.processing_limit)
+            input_df = input_df.head(flow.processing_limit)
             self.logger.info(
-                "Processing limit applied: %d %s",
-                len(input_df[entity_id_col].unique()) if has_entity_grouping and entity_id_col in input_df.columns else len(input_df),
-                "entities" if has_entity_grouping else "rows",
+                "Processing limit applied: %d rows", len(input_df),
             )
 
-        conversation_plan = _ConversationSummaryPlan()
-        label_plan = _LabelPlan()
-        entity_states: List[Tuple[Any, MessyTextConversationState]] = []
         processed_df = input_df.copy()
         for _field in self._output_fields:
             if _field not in processed_df.columns:
@@ -698,82 +555,20 @@ class FlowRunner:
 
         for step_index, step in enumerate(flow.steps):
             self.logger.info(
-                "Dispatching step %d/%d: type=%s unit=%s",
-                step_index + 1,
-                len(flow.steps),
-                step.type,
-                step.unit,
+                "Dispatching step %d/%d: type=%s",
+                step_index + 1, len(flow.steps), step.type,
             )
 
-            if step.type in {"conversation_summary_first", "conversation_summary_update"}:
-                if conversation_plan.executed:
-                    continue
-                processed_df, entity_states = await self._run_conversation_summary(
+            if step.type == "processor":
+                processed_df = await self._run_generic(
                     df=processed_df, step=step,
                 )
-                conversation_plan.executed = True
-
-            elif step.type == "single_summary":
-                processed_df = await self._run_single_summary(
-                    df=processed_df, step=step,
-                )
-
-            elif step.type == "classification":
-                processed_df = await self._run_classification(
-                    df=processed_df, step=step,
-                )
-
-            elif step.type == "label_extraction":
-                if label_plan.executed:
-                    continue
-                label_summary_step = next(
-                    (s for s in flow.steps if s.type == "label_summary"), None,
-                )
-                mode = "hybrid"
-                if label_summary_step is not None and label_summary_step.mode == "full_async":
-                    mode = "full_async"
-
-                if mode == "full_async":
-                    processed_df, entity_states = await self._run_label_full_async(
-                        df=processed_df, extraction_step=step,
-                        summary_step=label_summary_step,
-                    )
-                else:
-                    processed_df, entity_states = await self._run_label_hybrid(
-                        df=processed_df, extraction_step=step,
-                        summary_step=label_summary_step,
-                    )
-                label_plan.executed = True
-
-            elif step.type == "label_summary":
-                if label_plan.executed:
-                    continue
-                self.logger.warning(
-                    "label_summary without a preceding label_extraction step; skipping.",
-                )
-
-
-            elif step.type == "processor":
-                # Generic processor dispatch from the graph format.
-                if step.keys is not None:
-                    processed_df = await self._run_classification(
-                        df=processed_df, step=step,
-                    )
-                else:
-                    processed_df = await self._run_single_summary(
-                        df=processed_df, step=step,
-                    )
-
             else:
                 raise NotImplementedError(
                     f"Step type {step.type!r} is not recognised by the runner."
                 )
 
-        self._write_outputs(
-            processed_df=processed_df,
-            entity_states=entity_states,
-            model_name=model_name,
-        )
+        self._write_outputs(processed_df=processed_df, model_name=model_name)
 
     def _load_input_data(self) -> pd.DataFrame:
         """Load the input data file.
@@ -873,244 +668,17 @@ class FlowRunner:
             flow_prompts_path=self._flow_prompts_path,
         )
 
-    async def _run_conversation_summary(
-        self,
-        df: pd.DataFrame,
-        step: StepConfig,
-    ) -> Tuple[pd.DataFrame, List[Tuple[Any, MessyTextConversationState]]]:
-        """Run the conversation summary flow over every entity in ``df``.
-
-        Mirrors :func:`scripts.run_summary_conversation._process_dataframe_conversation_async`:
-        each entity's documents are processed sequentially with
-        ``previous_summary`` threading, only informative turns update the
-        running summary, and entities are processed concurrently up to
-        :attr:`src.flow_loader.AsyncConfig.max_concurrent_rows`.
-
-        Args:
-            df (pd.DataFrame): The input DataFrame.
-            step (StepConfig): The step config. Used to select the LLM
-                resource via :meth:`_select_resource_id_for_step`.
-
-        Returns:
-            Tuple[pd.DataFrame, List[Tuple[Any, MessyTextConversationState]]]:
-            The DataFrame with the configured output field populated,
-            and the list of per-entity conversation states in completion
-            order.
-
-        Raises:
-            KeyError: If a role column is missing after CSV load.
-        """
-        flow = self.schema.flow
-        text_col = str(self._column_hints.get("text", "text"))
-        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
-        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
-        sort_col = str(self._column_hints.get("sort_by", "sort_by"))
-        async_config = flow.async_config
-
-        resource_id = self._select_resource_id_for_step(step)
-        client = self.clients_by_id[resource_id]
-        processor_config = self._resolve_processor_config_for_step(step)
-
-        llm_semaphore: Optional[asyncio.Semaphore] = None
-        if async_config.max_concurrent_llm_calls > 0:
-            llm_semaphore = asyncio.Semaphore(async_config.max_concurrent_llm_calls)
-
-        processor = AsyncMessyTextProcessor(
-            client=client,
-            config=processor_config,
-            taxonomy=self.taxonomy,
-            logger=self.logger,
-            llm_semaphore=llm_semaphore,
-        )
-        turn_processor = AsyncMessyTextConversationTurnProcessor(processor)
-
-        processed_df = df.copy()
-        if self._output_col not in processed_df.columns:
-            processed_df[self._output_col] = ""
-
-        entity_groups = list(processed_df.groupby(entity_id_col))
-
-        skip_ids: Set[str] = set()
-        if self.resume:
-            skip_ids = self._checkpoint.completed_entity_ids()
-            if skip_ids:
-                self.logger.info(
-                    "Resuming: skipping %d already-completed entities.", len(skip_ids),
-                )
-
-        concurrency_semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
-        tasks: List[asyncio.Future] = []
-        for entity_id, group_df in entity_groups:
-            if str(entity_id) in skip_ids:
-                continue
-            tasks.append(
-                self._bounded_entity_task(
-                    concurrency_semaphore=concurrency_semaphore,
-                    entity_id=entity_id,
-                    group_df=group_df,
-                    turn_processor=turn_processor,
-                    text_column=text_col,
-                    doc_id_column=doc_id_col,
-                    sort_column=sort_col,
-                )
-            )
-
-        use_progress_bar = flow.display.use_progress_bar
-        entity_results: List[Tuple[Any, Dict[int, str], MessyTextConversationState]] = []
-        for completed in tqdm_async.as_completed(
-            tasks,
-            total=len(tasks),
-            desc="Processing entities (conversation)",
-            disable=not use_progress_bar,
-        ):
-            entity_results.append(await completed)
-
-        for _entity_id, index_to_summary, _state in entity_results:
-            for row_index, running_summary in index_to_summary.items():
-                processed_df.at[row_index, self._output_col] = running_summary
-            self._checkpoint.mark_completed(_entity_id)
-
-        entity_states: List[Tuple[Any, MessyTextConversationState]] = [
-            (entity_id, state) for entity_id, _index_to_summary, state in entity_results
-        ]
-        return processed_df, entity_states
-
-    async def _bounded_entity_task(
-        self,
-        concurrency_semaphore: asyncio.Semaphore,
-        entity_id: Any,
-        group_df: pd.DataFrame,
-        turn_processor: AsyncMessyTextConversationTurnProcessor,
-        text_column: str,
-        doc_id_column: str,
-        sort_column: str,
-    ) -> Tuple[Any, Dict[int, str], MessyTextConversationState]:
-        """Run :meth:`_process_entity` under the outer concurrency cap.
-
-        Args:
-            concurrency_semaphore (asyncio.Semaphore): Caps the number of
-                entities processed in parallel.
-            entity_id (Any): The entity identifier from the groupby.
-            group_df (pd.DataFrame): All rows that belong to this entity.
-            turn_processor (AsyncMessyTextConversationTurnProcessor):
-                Per-turn processor shared across entities.
-            text_column (str): Name of the text column in ``group_df``.
-            doc_id_column (str): Name of the document-id column.
-            sort_column (str): Name of the ordering column.
-
-        Returns:
-            Tuple[Any, Dict[int, str], MessyTextConversationState]: The
-            entity id, the row-index-to-running-summary mapping, and the
-            final conversation state.
-        """
-        async with concurrency_semaphore:
-            return await self._process_entity(
-                entity_id=entity_id,
-                group_df=group_df,
-                turn_processor=turn_processor,
-                text_column=text_column,
-                doc_id_column=doc_id_column,
-                sort_column=sort_column,
-            )
-
-    async def _process_entity(
-        self,
-        entity_id: Any,
-        group_df: pd.DataFrame,
-        turn_processor: AsyncMessyTextConversationTurnProcessor,
-        text_column: str,
-        doc_id_column: str,
-        sort_column: str,
-    ) -> Tuple[Any, Dict[int, str], MessyTextConversationState]:
-        """Sequentially process every document belonging to one entity.
-
-        Each turn calls
-        :meth:`src.processors.AsyncMessyTextConversationTurnProcessor.process_turn`
-        with the current running summary as ``previous_summary``. Only
-        turns whose ``info_found`` flag is truthy (or, as a fallback, whose
-        summary text passes :func:`src.utils.is_informative_summary`)
-        update the running summary, matching the behaviour of
-        :mod:`scripts.run_summary_conversation`.
-
-        Args:
-            entity_id (Any): The entity identifier from the groupby.
-            group_df (pd.DataFrame): Rows for this entity.
-            turn_processor (AsyncMessyTextConversationTurnProcessor):
-                Per-turn processor.
-            text_column (str): Name of the text column.
-            doc_id_column (str): Name of the document-id column.
-            sort_column (str): Name of the ordering column.
-
-        Returns:
-            Tuple[Any, Dict[int, str], MessyTextConversationState]: The
-            entity id, a mapping from the DataFrame row index to the
-            running summary as of that turn, and the final conversation
-            state containing every per-turn
-            :class:`src.processors.ProcessorResult`.
-        """
-        group_sorted = group_df.sort_values(by=sort_column)
-        dataframe_indices: List[int] = group_sorted.index.tolist()
-        document_texts: List[str] = [str(text) for text in group_sorted[text_column]]
-        document_ids: List[Any] = list(group_sorted[doc_id_column])
-
-        running_summary: str = ""
-        conversation_state = MessyTextConversationState(turn_index=0)
-        per_row_running_summaries: List[str] = []
-
-        for document_id, raw_text in zip(document_ids, document_texts):
-            candidate_summary, turn_state = await turn_processor.process_turn(
-                raw_text=raw_text,
-                state=conversation_state,
-                doc_id=document_id,
-            )
-
-            turn_result = getattr(turn_state, "last_result", None)
-
-            has_info = False
-            if turn_result is not None and hasattr(turn_result, "has_field") and turn_result.has_field("info_found"):
-                info_flag = str(turn_result.get("info_found") or "").strip().lower()
-                has_info = info_flag not in {"", "false", "0", "no"}
-            elif turn_result is not None and hasattr(turn_result, "is_no_info"):
-                has_info = not turn_result.is_no_info()
-            else:
-                has_info = is_informative_summary(candidate_summary)
-
-            if has_info:
-                structured_summary = (
-                    turn_result.get("summary") if turn_result is not None else candidate_summary
-                )
-                running_summary = (structured_summary or "").strip()
-
-            per_row_running_summaries.append(running_summary)
-            conversation_state = turn_state
-
-        index_to_running_summary: Dict[int, str] = {
-            row_index: summary
-            for row_index, summary in zip(dataframe_indices, per_row_running_summaries)
-        }
-        return entity_id, index_to_running_summary, conversation_state
-
-    # ------------------------------------------------------------------
-    # single_summary dispatcher  (matches run_summary.py)
-    # ------------------------------------------------------------------
-
-    async def _run_single_summary(
+    async def _run_generic(
         self,
         df: pd.DataFrame,
         step: StepConfig,
     ) -> pd.DataFrame:
-        """Summarise every row independently (no entity grouping).
+        """Run the generic processor on every row concurrently.
 
-        Mirrors the async path in ``scripts/run_summary.py``: each row
-        passes through ``AsyncMessyTextProcessor.summarize_text`` with
-        concurrency capped by ``max_concurrent_rows``.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame.
-            step (StepConfig): Step config for resource selection.
-
-        Returns:
-            pd.DataFrame: DataFrame with the configured output field populated.
+        Builds a :class:`GenericProcessor` from the step's resolved
+        io_schema and prompt, then fires all rows in parallel bounded
+        by ``max_concurrent_rows``. Each row's result dict is spread
+        into the DataFrame's output columns.
         """
         flow = self.schema.flow
         text_col = str(self._column_hints.get("text", "text"))
@@ -1121,480 +689,76 @@ class FlowRunner:
         client = self.clients_by_id[resource_id]
         processor_config = self._resolve_processor_config_for_step(step)
 
+        io_schema: Optional[IOSchema] = processor_config.get("io_schema_resolved")
+        if io_schema is None or not io_schema.output:
+            raise ValueError(
+                "Step has no io_schema with output fields. "
+                "Configure output fields in the processor's config panel."
+            )
+
+        prompt_resolved = processor_config.get("prompt_resolved")
+        if prompt_resolved is None or not prompt_resolved.instructions:
+            raise ValueError(
+                "Step has no prompt instructions. "
+                "Configure instructions in the processor's config panel."
+            )
+
         llm_semaphore: Optional[asyncio.Semaphore] = None
         if async_config.max_concurrent_llm_calls > 0:
             llm_semaphore = asyncio.Semaphore(async_config.max_concurrent_llm_calls)
 
-        processor = AsyncMessyTextProcessor(
-            client=client, config=processor_config,
-            taxonomy=self.taxonomy, logger=self.logger,
+        model_name = processor_config["model"]["name"]
+        temperature = processor_config["processing"].get("temperature", 0.3)
+        max_tokens = processor_config["processing"].get("max_tokens_summary", 4096)
+
+        processor = GenericProcessor(
+            client=client,
+            io_schema=io_schema,
+            instructions=prompt_resolved.instructions,
+            model_name=model_name,
+            logger=self.logger,
+            temperature=temperature,
+            max_tokens=max_tokens,
             llm_semaphore=llm_semaphore,
         )
 
         processed_df = df.copy()
-        if self._output_col not in processed_df.columns:
-            processed_df[self._output_col] = ""
+        row_semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
+        output_keys = list(io_schema.output.keys())
 
-        semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
-
-        async def _summarise_row(row_index: int, text: str, doc_id: Any) -> Tuple[int, str]:
-            async with semaphore:
+        async def _process_row(
+            row_index: int, text: str, doc_id: Any,
+        ) -> Tuple[int, Dict[str, Any]]:
+            async with row_semaphore:
                 cleaned = processor.clean_text(text)
-                if cleaned.strip():
-                    summary = await processor.summarize_text(cleaned, doc_id=doc_id)
-                else:
-                    summary = "No relevant information found"
-                return row_index, summary
+                if not cleaned.strip():
+                    return row_index, {k: "" for k in output_keys}
+                result = await processor.execute(cleaned, doc_id=doc_id)
+                return row_index, result
 
         tasks = []
         for row in processed_df.itertuples():
             text = str(getattr(row, text_col, ""))
             doc_id = getattr(row, doc_id_col, row.Index)
-            tasks.append(_summarise_row(row.Index, text, doc_id))
+            tasks.append(_process_row(row.Index, text, doc_id))
 
         use_pb = flow.display.use_progress_bar
         for completed in tqdm_async.as_completed(
             tasks, total=len(tasks),
-            desc="Summarising rows", disable=not use_pb,
+            desc="Processing rows", disable=not use_pb,
         ):
-            row_index, summary = await completed
-            processed_df.at[row_index, self._output_col] = summary
+            row_index, result_dict = await completed
+            for key, value in result_dict.items():
+                if key in processed_df.columns or key in output_keys:
+                    processed_df.at[row_index, key] = value
 
         return processed_df
 
-    # ------------------------------------------------------------------
-    # classification dispatcher  (matches run_classification.py)
-    # ------------------------------------------------------------------
-
-    async def _run_classification(
-        self,
-        df: pd.DataFrame,
-        step: StepConfig,
-    ) -> pd.DataFrame:
-        """Classify every row using its existing output summary field.
-
-        Mirrors the async path in ``scripts/run_classification.py``: each
-        row's summary is classified per taxonomy key concurrently.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame (must have the configured
-                output field).
-            step (StepConfig): Step config; ``step.keys`` can restrict
-                the taxonomy keys to a subset.
-
-        Returns:
-            pd.DataFrame: DataFrame with ``{key}_classification`` columns.
-        """
-        flow = self.schema.flow
-        async_config = flow.async_config
-
-        resource_id = self._select_resource_id_for_step(step)
-        client = self.clients_by_id[resource_id]
-        processor_config = self._resolve_processor_config_for_step(step)
-
-        llm_semaphore: Optional[asyncio.Semaphore] = None
-        if async_config.max_concurrent_llm_calls > 0:
-            llm_semaphore = asyncio.Semaphore(async_config.max_concurrent_llm_calls)
-
-        processor = AsyncMessyTextProcessor(
-            client=client, config=processor_config,
-            taxonomy=self.taxonomy, logger=self.logger,
-            llm_semaphore=llm_semaphore,
-        )
-
-        all_keys = list(self.taxonomy.get("context_definitions", {}).keys())
-        if step.keys is not None and step.keys != "all":
-            keys_to_classify = [k for k in step.keys if k in all_keys]
-        else:
-            keys_to_classify = all_keys
-
-        processed_df = df.copy()
-        for key in all_keys:
-            col = f"{key}_classification"
-            if col not in processed_df.columns:
-                processed_df[col] = ""
-
-        semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
-
-        async def _classify_row(row_index: int, summary: str, doc_id: Any) -> Tuple[int, Dict[str, str]]:
-            async with semaphore:
-                results: Dict[str, str] = {}
-                if summary and summary != "No relevant information found":
-                    cls_tasks = [processor.classify_summary(summary, key) for key in keys_to_classify]
-                    cls_results = await asyncio.gather(*cls_tasks)
-                    for key, cls_value in zip(keys_to_classify, cls_results):
-                        results[f"{key}_classification"] = cls_value
-                return row_index, results
-
-        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
-        tasks = []
-        for row in processed_df.itertuples():
-            summary = getattr(row, self._output_col, "")
-            doc_id = getattr(row, doc_id_col, row.Index)
-            tasks.append(_classify_row(row.Index, summary, doc_id))
-
-        use_pb = flow.display.use_progress_bar
-        for completed in tqdm_async.as_completed(
-            tasks, total=len(tasks),
-            desc="Classifying rows", disable=not use_pb,
-        ):
-            row_index, cls_results = await completed
-            for col, val in cls_results.items():
-                processed_df.at[row_index, col] = val
-
-        return processed_df
-
-    # ------------------------------------------------------------------
-    # label_extraction + label_summary (hybrid) dispatcher
-    # ------------------------------------------------------------------
-
-    def _build_extractors(
-        self,
-        step: StepConfig,
-    ) -> Tuple[Dict[str, AsyncLabelExtractor], Optional[asyncio.Semaphore]]:
-        """Build one ``AsyncLabelExtractor`` per taxonomy label.
-
-        Args:
-            step (StepConfig): Step config for resource selection.
-
-        Returns:
-            Tuple[Dict[str, AsyncLabelExtractor], Optional[asyncio.Semaphore]]:
-            Extractor dict keyed by taxonomy label, plus the shared LLM
-            semaphore (or ``None``).
-        """
-        flow = self.schema.flow
-        async_config = flow.async_config
-
-        resource_id = self._select_resource_id_for_step(step)
-        client = self.clients_by_id[resource_id]
-        processor_config = self._resolve_processor_config_for_step(step)
-
-        llm_semaphore: Optional[asyncio.Semaphore] = None
-        if async_config.max_concurrent_llm_calls > 0:
-            llm_semaphore = asyncio.Semaphore(async_config.max_concurrent_llm_calls)
-
-        context_definitions: Dict[str, str] = self.taxonomy.get("context_definitions", {})
-        extractors: Dict[str, AsyncLabelExtractor] = {}
-        for label_key, label_definition in context_definitions.items():
-            extractors[label_key] = AsyncLabelExtractor(
-                client=client, config=processor_config,
-                label_key=label_key, label_definition=label_definition,
-                logger=self.logger, llm_semaphore=llm_semaphore,
-            )
-        return extractors, llm_semaphore
-
-    async def _run_label_hybrid(
-        self,
-        df: pd.DataFrame,
-        extraction_step: StepConfig,
-        summary_step: Optional[StepConfig],
-    ) -> Tuple[pd.DataFrame, List[Tuple[Any, MessyTextConversationState]]]:
-        """Hybrid label pipeline: sequential docs, concurrent labels.
-
-        Mirrors ``_process_dataframe_hybrid`` in
-        ``scripts/run_summary_conversation_by_label.py``.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame.
-            extraction_step (StepConfig): Config for label_extraction.
-            summary_step (Optional[StepConfig]): Config for label_summary.
-
-        Returns:
-            Tuple of processed DataFrame and entity states.
-        """
-        flow = self.schema.flow
-        text_col = str(self._column_hints.get("text", "text"))
-        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
-        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
-        sort_col = str(self._column_hints.get("sort_by", "sort_by"))
-        async_config = flow.async_config
-
-        extractors, llm_semaphore = self._build_extractors(extraction_step)
-
-        effective_summary_step = summary_step or extraction_step
-        summary_resource_id = self._select_resource_id_for_step(
-            effective_summary_step
-        )
-        summary_client = self.clients_by_id[summary_resource_id]
-        summary_config = self._resolve_processor_config_for_step(
-            effective_summary_step
-        )
-
-        summary_processor = AsyncTextLabelsSummaryProcessor(
-            client=summary_client, config=summary_config,
-            taxonomy=self.taxonomy, logger=self.logger,
-            llm_semaphore=llm_semaphore,
-        )
-
-        processed_df = df.copy()
-        if self._output_col not in processed_df.columns:
-            processed_df[self._output_col] = ""
-
-        entity_groups = list(processed_df.groupby(entity_id_col))
-
-        skip_ids: Set[str] = set()
-        if self.resume:
-            skip_ids = self._checkpoint.completed_entity_ids()
-            if skip_ids:
-                self.logger.info(
-                    "Resuming (label hybrid): skipping %d entities.", len(skip_ids),
-                )
-            entity_groups = [
-                (eid, gdf) for eid, gdf in entity_groups if str(eid) not in skip_ids
-            ]
-
-        concurrency_sem = asyncio.Semaphore(async_config.max_concurrent_rows)
-
-        async def _process_entity_hybrid(
-            entity_id: Any, group_df: pd.DataFrame,
-        ) -> Tuple[Any, Dict[int, str], MessyTextConversationState]:
-            async with concurrency_sem:
-                group_sorted = group_df.sort_values(by=sort_col)
-                index_list = group_sorted.index.tolist()
-                texts = [str(t) for t in group_sorted[text_col]]
-                doc_ids = list(group_sorted[doc_id_col])
-
-                state = MessyTextConversationState(turn_index=0)
-                per_row_summaries: List[str] = []
-
-                for doc_id, raw_text in zip(doc_ids, texts):
-                    label_keys = list(extractors.keys())
-                    extract_tasks = [
-                        extractors[k].extract_label(text=raw_text, doc_id=doc_id)
-                        for k in label_keys
-                    ]
-                    extract_results = await asyncio.gather(*extract_tasks)
-                    label_results: Dict[str, ProcessorResult] = dict(
-                        zip(label_keys, extract_results)
-                    )
-
-                    result = await summary_processor.summarize_from_labels(
-                        text=raw_text, label_results=label_results,
-                        previous_summary=state.last_summary, doc_id=doc_id,
-                    )
-
-                    new_results = state.results.copy()
-                    new_results.append(result)
-                    state = MessyTextConversationState(
-                        turn_index=state.turn_index + 1, results=new_results,
-                    )
-                    per_row_summaries.append(result.get("summary") or "")
-
-                idx_to_summary = dict(zip(index_list, per_row_summaries))
-                return entity_id, idx_to_summary, state
-
-        tasks = [_process_entity_hybrid(eid, gdf) for eid, gdf in entity_groups]
-        use_pb = flow.display.use_progress_bar
-        entity_results: List[Tuple[Any, Dict[int, str], MessyTextConversationState]] = []
-        for completed in tqdm_async.as_completed(
-            tasks, total=len(tasks),
-            desc="Processing entities (label hybrid)", disable=not use_pb,
-        ):
-            entity_results.append(await completed)
-
-        for _eid, idx_to_summary, _st in entity_results:
-            for row_idx, summary in idx_to_summary.items():
-                processed_df.at[row_idx, self._output_col] = summary
-            self._checkpoint.mark_completed(_eid)
-
-        entity_states = [(eid, st) for eid, _, st in entity_results]
-        return processed_df, entity_states
-
-    # ------------------------------------------------------------------
-    # label_extraction + label_summary (full_async) dispatcher
-    # ------------------------------------------------------------------
-
-    async def _run_label_full_async(
-        self,
-        df: pd.DataFrame,
-        extraction_step: StepConfig,
-        summary_step: Optional[StepConfig],
-    ) -> Tuple[pd.DataFrame, List[Tuple[Any, MessyTextConversationState]]]:
-        """Full-async label pipeline: all docs concurrent, then synthesis.
-
-        Mirrors ``_process_dataframe_full_async`` in
-        ``scripts/run_summary_conversation_by_label.py``.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame.
-            extraction_step (StepConfig): Config for label_extraction.
-            summary_step (Optional[StepConfig]): Config for label_summary.
-
-        Returns:
-            Tuple of processed DataFrame and entity states.
-        """
-        flow = self.schema.flow
-        text_col = str(self._column_hints.get("text", "text"))
-        entity_id_col = str(self._column_hints.get("entity_id", "entity_id"))
-        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
-        sort_col = str(self._column_hints.get("sort_by", "sort_by"))
-        async_config = flow.async_config
-
-        extractors, llm_semaphore = self._build_extractors(extraction_step)
-
-        effective_summary_step = summary_step or extraction_step
-        summary_resource_id = self._select_resource_id_for_step(
-            effective_summary_step
-        )
-        summary_client = self.clients_by_id[summary_resource_id]
-        summary_config = self._resolve_processor_config_for_step(
-            effective_summary_step
-        )
-
-        summary_processor = AsyncTextLabelsSummaryProcessor(
-            client=summary_client, config=summary_config,
-            taxonomy=self.taxonomy, logger=self.logger,
-            llm_semaphore=llm_semaphore,
-        )
-        orchestrator = AsyncTextConversationOrchestrator(summary_processor)
-
-        processed_df = df.copy()
-        if self._output_col not in processed_df.columns:
-            processed_df[self._output_col] = ""
-
-        entity_groups = list(processed_df.groupby(entity_id_col))
-
-        skip_ids: Set[str] = set()
-        if self.resume:
-            skip_ids = self._checkpoint.completed_entity_ids()
-            if skip_ids:
-                self.logger.info(
-                    "Resuming (label full-async): skipping %d entities.", len(skip_ids),
-                )
-            entity_groups = [
-                (eid, gdf) for eid, gdf in entity_groups if str(eid) not in skip_ids
-            ]
-
-        concurrency_sem = asyncio.Semaphore(async_config.max_concurrent_rows)
-
-        async def _process_entity_full_async(
-            entity_id: Any, group_df: pd.DataFrame,
-        ) -> Tuple[Any, Dict[int, str], MessyTextConversationState]:
-            async with concurrency_sem:
-                group_sorted = group_df.sort_values(by=sort_col)
-                index_list = group_sorted.index.tolist()
-                texts = [str(t) for t in group_sorted[text_col]]
-                doc_ids = list(group_sorted[doc_id_col])
-
-                label_keys = list(extractors.keys())
-                n_labels = len(label_keys)
-                all_extract_tasks = []
-                for doc_id, text in zip(doc_ids, texts):
-                    for k in label_keys:
-                        all_extract_tasks.append(
-                            extractors[k].extract_label(text=text, doc_id=doc_id)
-                        )
-                all_extract_results = await asyncio.gather(*all_extract_tasks)
-
-                per_doc_label_results: List[Dict[str, ProcessorResult]] = []
-                for i in range(len(texts)):
-                    offset = i * n_labels
-                    per_doc_label_results.append({
-                        label_keys[j]: all_extract_results[offset + j]
-                        for j in range(n_labels)
-                    })
-
-                documents: List[Tuple[str, Dict[str, ProcessorResult], Any]] = [
-                    (text, lr, did)
-                    for text, lr, did in zip(texts, per_doc_label_results, doc_ids)
-                ]
-
-                _summaries, state = await orchestrator.run_conversation(
-                    documents=documents,
-                    use_progress_bar=False,
-                )
-
-                per_doc_summaries = [
-                    str(r.get("summary") or "") for r in state.results
-                ]
-                synthesis_result = await summary_processor.synthesize_from_summaries(
-                    per_doc_summaries=per_doc_summaries, doc_id=entity_id,
-                )
-
-                new_results = state.results.copy()
-                new_results.append(synthesis_result)
-                state = MessyTextConversationState(
-                    turn_index=state.turn_index + 1, results=new_results,
-                )
-
-                final_summary = synthesis_result.get("summary") or ""
-                idx_to_summary = {row_idx: final_summary for row_idx in index_list}
-                return entity_id, idx_to_summary, state
-
-        tasks = [_process_entity_full_async(eid, gdf) for eid, gdf in entity_groups]
-        use_pb = flow.display.use_progress_bar
-        entity_results: List[Tuple[Any, Dict[int, str], MessyTextConversationState]] = []
-        for completed in tqdm_async.as_completed(
-            tasks, total=len(tasks),
-            desc="Processing entities (label full-async)", disable=not use_pb,
-        ):
-            entity_results.append(await completed)
-
-        for _eid, idx_to_summary, _st in entity_results:
-            for row_idx, summary in idx_to_summary.items():
-                processed_df.at[row_idx, self._output_col] = summary
-            self._checkpoint.mark_completed(_eid)
-
-        entity_states = [(eid, st) for eid, _, st in entity_results]
-        return processed_df, entity_states
-
-    def _write_outputs(
-        self,
-        processed_df: pd.DataFrame,
-        entity_states: List[Tuple[Any, MessyTextConversationState]],
-        model_name: str,
-    ) -> None:
-        """Write every output CSV declared in :class:`src.flow_loader.OutputConfig`.
-
-        Creates parent directories as needed. The per-row summary CSV is
-        always written. The per-turn results, per-entity states, and
-        flattened spans CSVs are written only when their output paths are
-        configured.
-
-        Args:
-            processed_df (pd.DataFrame): DataFrame augmented with the
-                configured output fields and ``model``.
-            entity_states (List[Tuple[Any, MessyTextConversationState]]):
-                Per-entity conversation states.
-            model_name (str): Model identifier used for the ``model``
-                column and the extend-mode replacement key.
-
-        Returns:
-            None.
-        """
+    def _write_outputs(self, processed_df: pd.DataFrame, model_name: str) -> None:
+        """Write the processed DataFrame to the configured output path."""
         output_config = self.schema.flow.output
-        raw_passthrough = self._column_hints.get("passthrough", [])
-        passthrough_columns = (
-            [str(c) for c in raw_passthrough]
-            if isinstance(raw_passthrough, list)
-            else []
-        )
         processed_df = processed_df.copy()
         processed_df["model"] = model_name
-        for _field in self._output_fields:
-            if _field in processed_df.columns:
-                processed_df[_field] = processed_df[_field].replace(
-                    ["No information", "No relevant information found"],
-                    "",
-                )
-
-        if passthrough_columns:
-            dropped_passthrough = [
-                col for col in passthrough_columns
-                if col not in processed_df.columns
-            ]
-            if dropped_passthrough:
-                self.logger.warning(
-                    "Passthrough columns dropped during processing: %s. "
-                    "Re-adding them from the input DataFrame is not possible "
-                    "at this stage.",
-                    dropped_passthrough,
-                )
-            else:
-                self.logger.info(
-                    "Passthrough columns preserved in output: %s",
-                    passthrough_columns,
-                )
 
         summary_path = Path(output_config.summary_csv)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1606,105 +770,16 @@ class FlowRunner:
             combined_df = pd.concat([existing_df, processed_df], ignore_index=True)
             combined_df.to_csv(summary_path, index=False, encoding="utf-8")
             self.logger.info(
-                "Summary output extended: %d existing + %d new = %d total rows",
-                len(existing_df),
-                len(processed_df),
-                len(combined_df),
+                "Output extended: %d existing + %d new = %d total rows",
+                len(existing_df), len(processed_df), len(combined_df),
             )
         else:
             processed_df.to_csv(summary_path, index=False, encoding="utf-8")
             self.logger.info(
-                "Summary output saved to %s (%d rows)",
-                summary_path,
-                len(processed_df),
+                "Output saved to %s (%d rows)", summary_path, len(processed_df),
             )
 
-        if not entity_states:
-            return
 
-        results_rows: List[Dict[str, Any]] = []
-        states_rows: List[Dict[str, Any]] = []
-        spans_rows: List[Dict[str, Any]] = []
-
-        passthrough_lookup: Dict[Any, Dict[str, Any]] = {}
-        if passthrough_columns:
-            doc_id_column = str(self._column_hints.get("doc_id", "doc_id"))
-            for row in processed_df.itertuples():
-                row_doc_id = getattr(row, doc_id_column, None)
-                passthrough_lookup[row_doc_id] = {
-                    col: getattr(row, col, None) for col in passthrough_columns
-                }
-
-        for entity_id, state in entity_states:
-            states_rows.append(
-                serialize_state_entry(
-                    state=state,
-                    victim_id=str(entity_id),
-                    model_name=model_name,
-                )
-            )
-            spans_rows.extend(
-                flatten_spans_from_state(
-                    state=state,
-                    victim_id=str(entity_id),
-                    model_name=model_name,
-                )
-            )
-            for turn_index, turn_result in enumerate(state.results):
-                result_row = serialize_result_entry(
-                    result=turn_result,
-                    victim_id=str(entity_id),
-                    model_name=model_name,
-                    turn_index=turn_index,
-                )
-                if passthrough_columns and turn_result.doc_id in passthrough_lookup:
-                    result_row.update(passthrough_lookup[turn_result.doc_id])
-                results_rows.append(result_row)
-
-        if output_config.results_csv is not None:
-            results_path = Path(output_config.results_csv)
-            results_path.parent.mkdir(parents=True, exist_ok=True)
-            write_results(
-                rows=results_rows,
-                path=results_path,
-                extend=output_config.extend,
-                model_name=model_name,
-            )
-            self.logger.info(
-                "Results records saved to %s (%d rows)",
-                results_path,
-                len(results_rows),
-            )
-
-        if output_config.states_csv is not None:
-            states_path = Path(output_config.states_csv)
-            states_path.parent.mkdir(parents=True, exist_ok=True)
-            write_states(
-                rows=states_rows,
-                path=states_path,
-                extend=output_config.extend,
-                model_name=model_name,
-            )
-            self.logger.info(
-                "State records saved to %s (%d rows)",
-                states_path,
-                len(states_rows),
-            )
-
-        if output_config.spans_csv is not None:
-            spans_path = Path(output_config.spans_csv)
-            spans_path.parent.mkdir(parents=True, exist_ok=True)
-            write_spans(
-                rows=spans_rows,
-                path=spans_path,
-                extend=output_config.extend,
-                model_name=model_name,
-            )
-            self.logger.info(
-                "Span records saved to %s (%d rows)",
-                spans_path,
-                len(spans_rows),
-            )
 
 
 TAXONOMY_URI_PREFIX: str = "taxonomy://"

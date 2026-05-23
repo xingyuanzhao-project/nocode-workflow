@@ -1,0 +1,74 @@
+flow:
+  name: test_generic_processor
+  description: "Verify the new generic processor works end-to-end"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/df_text_by_report.csv
+        input_columns:
+          - role: text
+            column: text
+          - role: doc_id
+            column: index
+
+    - id: proc_1
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "You are a text analyst."
+            - "Read the text and produce a one-sentence summary and a sentiment label (positive, negative, or neutral)."
+        io_schema:
+          output:
+            summary:
+              type: string
+            sentiment:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: meta-llama/llama-3.1-70b-instruct
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0.0
+        max_tokens: 512
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/test_generic/output.csv
+        output_fields:
+          - summary
+          - sentiment
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_1
+    - type: feedforward
+      source: proc_1
+      target: output_1
+    - type: llm_call
+      source: proc_1
+      target: llm_1
+
+  settings:
+    async:
+      enabled: true
+      max_concurrent_rows: 5
+      max_concurrent_llm_calls: 5
+      max_retries: 3
+    processing_limit: 3
+    logging:
+      file: results_custom/test_generic/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: true
+    prompts: config/prompts.json
