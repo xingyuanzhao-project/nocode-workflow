@@ -1,7 +1,9 @@
 /**
  * Typed node for ``csv_input`` / ``json_input`` palette items.
  *
- * Holds the user's chosen input file path.
+ * Holds the user's chosen input file path and the column-role mappings
+ * that tell the backend which CSV/JSON columns to use for each role
+ * (e.g. ``text``, ``entity_id``).
  */
 
 import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
@@ -9,12 +11,41 @@ import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
 /** ``csv_input`` and ``json_input`` are the same class with a different type. */
 export type DataSourceTypeId = "csv_input" | "json_input";
 
+export interface InputColumnEntry {
+  role: string;
+  column: string;
+}
+
+const DEFAULT_INPUT_COLUMNS: InputColumnEntry[] = [
+  { role: "text", column: "" },
+];
+
+function parse_input_columns(raw: unknown): InputColumnEntry[] {
+  if (!Array.isArray(raw) || raw.length === 0) return structuredClone(DEFAULT_INPUT_COLUMNS);
+  const result: InputColumnEntry[] = [];
+  for (const item of raw) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "role" in item &&
+      "column" in item
+    ) {
+      result.push({
+        role: String((item as Record<string, unknown>).role ?? ""),
+        column: String((item as Record<string, unknown>).column ?? ""),
+      });
+    }
+  }
+  return result.length > 0 ? result : structuredClone(DEFAULT_INPUT_COLUMNS);
+}
+
 export class DataSourceNode extends BaseNode {
   readonly node_type: DataSourceTypeId;
   readonly category: NodeCategory = "data";
   readonly label: string;
 
   selected_file: string | null = null;
+  input_columns: InputColumnEntry[] = structuredClone(DEFAULT_INPUT_COLUMNS);
 
   constructor(
     id: string,
@@ -34,11 +65,13 @@ export class DataSourceNode extends BaseNode {
       typeof selected_file === "string" && selected_file.length > 0
         ? selected_file
         : null;
+    this.input_columns = parse_input_columns(config.input_columns);
   }
 
   emit_config(): Record<string, unknown> {
     return {
       selected_file: this.selected_file,
+      input_columns: this.input_columns,
     };
   }
 
@@ -55,6 +88,7 @@ export class DataSourceNode extends BaseNode {
       label: this.label,
       category: this.category,
       selected_file: this.selected_file,
+      input_columns: this.input_columns,
     };
   }
 }

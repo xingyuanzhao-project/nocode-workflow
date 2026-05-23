@@ -17,6 +17,7 @@ export interface CSVOutputNodeData {
   // New model
   output_path?: string;
   artifact_paths?: string[];
+  output_fields?: string[];
   // Old model
   summary_csv?: string;
   results_csv?: string | null;
@@ -52,6 +53,11 @@ export function CSVOutputNode({
             <span className="truncate font-mono" title={data.output_path}>
               {data.output_path || "— path unset —"}
             </span>
+            {(data.output_fields?.length ?? 0) > 0 && (
+              <span className="text-muted-foreground">
+                Fields: {data.output_fields!.join(", ")}
+              </span>
+            )}
             {(data.artifact_paths?.length ?? 0) > 0 && (
               <span className="text-muted-foreground">
                 +{data.artifact_paths!.length} artifact{data.artifact_paths!.length === 1 ? "" : "s"}

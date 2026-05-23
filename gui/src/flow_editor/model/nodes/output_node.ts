@@ -18,6 +18,7 @@ export class OutputNode extends BaseNode {
   output_path: string = "results/output.csv";
   artifact_paths: string[] = [];
   extend: boolean = false;
+  output_fields: string[] = ["summary"];
 
   constructor(
     id: string,
@@ -40,6 +41,9 @@ export class OutputNode extends BaseNode {
       ? config.artifact_paths.map(String)
       : [];
     this.extend = config.extend === true;
+    this.output_fields = Array.isArray(config.output_fields)
+      ? config.output_fields.map(String).filter(Boolean)
+      : ["summary"];
   }
 
   emit_config(): Record<string, unknown> {
@@ -47,6 +51,7 @@ export class OutputNode extends BaseNode {
       output_path: this.output_path,
       artifact_paths: [...this.artifact_paths],
       extend: this.extend,
+      output_fields: [...this.output_fields],
     };
   }
 
@@ -65,6 +70,7 @@ export class OutputNode extends BaseNode {
       output_path: this.output_path,
       artifact_paths: [...this.artifact_paths],
       extend: this.extend,
+      output_fields: [...this.output_fields],
     };
   }
 }

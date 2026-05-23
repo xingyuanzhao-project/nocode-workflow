@@ -9,8 +9,10 @@
 import { ApiError, buildApiUrl, requestJson } from "./client";
 import { errorResponseSchema } from "@/schemas/errors";
 import {
+  columnHeadersResponseSchema,
   csvUploadResponseSchema,
   dataFileListResponseSchema,
+  type ColumnHeadersResponse,
   type CSVUploadResponse,
   type DataFileListResponse,
 } from "@/schemas/files";
@@ -23,6 +25,23 @@ export function listDataFiles(): Promise<DataFileListResponse> {
     method: "GET",
     path: "/api/files/list",
     responseSchema: dataFileListResponseSchema,
+  });
+}
+
+/**
+ * Fetch column headers for a stored CSV file.
+ *
+ * @param storedPath - The `stored_path` of the file as returned by the
+ *   list or upload endpoint.
+ * @returns Array of column header strings.
+ */
+export function fetchColumnHeaders(
+  storedPath: string,
+): Promise<ColumnHeadersResponse> {
+  return requestJson({
+    method: "GET",
+    path: `/api/files/columns?path=${encodeURIComponent(storedPath)}`,
+    responseSchema: columnHeadersResponseSchema,
   });
 }
 

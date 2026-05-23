@@ -740,7 +740,7 @@ class FlowConfig(BaseModel):
     description: str = ""
     resources: List[LLMResource]
     data: DataConfig
-    taxonomy: str
+    taxonomy: str = ""
     prompts: str = "config/prompts.json"
     steps: List[StepConfig]
     processing_limit: Optional[int] = None
@@ -760,6 +760,9 @@ class FlowConfig(BaseModel):
         :func:`src.flow_builder.build_flow` or
         :func:`server.workers.flow_task.execute_flow`, not here.
 
+        An empty string is accepted for ``taxonomy`` — it means no
+        codebook is connected to any processor in the graph.
+
         Args:
             value (str): Raw value as read from YAML.
             info: Pydantic validation context; ``info.field_name`` is
@@ -769,10 +772,12 @@ class FlowConfig(BaseModel):
             str: ``value`` unchanged.
 
         Raises:
-            ValueError: If the path is absolute, empty, contains
-                backslashes, or begins with a Windows drive letter
-                (unless it is a ``taxonomy://`` URI).
+            ValueError: If the path is absolute, empty (for prompts),
+                contains backslashes, or begins with a Windows drive
+                letter (unless it is a ``taxonomy://`` URI).
         """
+        if info.field_name == "taxonomy" and not value:
+            return value
         if info.field_name == "taxonomy" and value.startswith("taxonomy://"):
             if len(value) <= len("taxonomy://"):
                 raise ValueError(
@@ -1296,10 +1301,7 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         steps.append(_build_step_from_processor(processor_node, llm_resource.id))
 
     if taxonomy_path is None:
-        # No processor consults a codebook; pick a placeholder file path
-        # so :class:`FlowConfig` validation still passes. The runner does
-        # not load this file when no step actually needs it.
-        taxonomy_path = "config/taxonomy.json"
+        taxonomy_path = ""
 
     flow_config = FlowConfig(
         schema_version=1,

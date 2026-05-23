@@ -577,6 +577,8 @@ class FlowRunner:
 
         self._flow_prompts_path: str = schema.flow.prompts
         self._column_hints = self._read_column_hints()
+        self._output_fields = self._resolve_output_fields()
+        self._output_col = self._output_fields[0]
 
         output_dir = Path(schema.flow.output.summary_csv).parent
         self._checkpoint = _Checkpoint(output_dir, schema.flow.name)
@@ -585,17 +587,52 @@ class FlowRunner:
         """Read optional column hints from the data input node's raw config.
 
         Returns a plain dict that callers query with ``.get(key, default)``.
-        Existing YAML flows that still carry a ``column_roles`` block in
-        their ``csv_input`` / ``json_input`` node config will have their
-        mappings honoured.  New flows without one fall back to sensible
-        column-name defaults at every call site.
+
+        Supports two formats:
+
+        *   **New** (``input_columns``): a list of ``{role, column}`` dicts
+            produced by the GUI's column-mapping UI.
+        *   **Legacy** (``column_roles``): a flat ``{role: column}`` dict
+            from older YAML flows.
+
+        New flows without either key fall back to sensible column-name
+        defaults at every call site.
         """
         for node in self.schema.document.nodes:
             if node.type in {"csv_input", "json_input"}:
+                input_columns = node.config.get("input_columns", [])
+                if isinstance(input_columns, list):
+                    hints: Dict[str, Any] = {}
+                    for entry in input_columns:
+                        if (
+                            isinstance(entry, dict)
+                            and "role" in entry
+                            and "column" in entry
+                            and entry["column"]
+                        ):
+                            hints[entry["role"]] = entry["column"]
+                    if hints:
+                        return hints
                 raw = node.config.get("column_roles", {})
-                if isinstance(raw, dict):
+                if isinstance(raw, dict) and raw:
                     return {k: v for k, v in raw.items()}
         return {}
+
+    def _resolve_output_fields(self) -> List[str]:
+        """Read ``output_fields`` from the first output node's config.
+
+        Falls back to ``["summary_all_context"]`` when no output node
+        declares the field, preserving backward compatibility with flows
+        authored before this feature was added.
+        """
+        for node in self.schema.document.nodes:
+            if node.type in {"csv_output", "json_output"}:
+                raw = node.config.get("output_fields")
+                if isinstance(raw, list) and raw:
+                    fields = [str(f) for f in raw if f]
+                    if fields:
+                        return fields
+        return ["summary_all_context"]
 
     def run(self) -> None:
         """Execute the flow synchronously.
@@ -655,8 +692,9 @@ class FlowRunner:
         label_plan = _LabelPlan()
         entity_states: List[Tuple[Any, MessyTextConversationState]] = []
         processed_df = input_df.copy()
-        if "summary_all_context" not in processed_df.columns:
-            processed_df["summary_all_context"] = ""
+        for _field in self._output_fields:
+            if _field not in processed_df.columns:
+                processed_df[_field] = ""
 
         for step_index, step in enumerate(flow.steps):
             self.logger.info(
@@ -855,8 +893,9 @@ class FlowRunner:
 
         Returns:
             Tuple[pd.DataFrame, List[Tuple[Any, MessyTextConversationState]]]:
-            The DataFrame with ``summary_all_context`` populated, and the
-            list of per-entity conversation states in completion order.
+            The DataFrame with the configured output field populated,
+            and the list of per-entity conversation states in completion
+            order.
 
         Raises:
             KeyError: If a role column is missing after CSV load.
@@ -886,8 +925,8 @@ class FlowRunner:
         turn_processor = AsyncMessyTextConversationTurnProcessor(processor)
 
         processed_df = df.copy()
-        if "summary_all_context" not in processed_df.columns:
-            processed_df["summary_all_context"] = ""
+        if self._output_col not in processed_df.columns:
+            processed_df[self._output_col] = ""
 
         entity_groups = list(processed_df.groupby(entity_id_col))
 
@@ -928,7 +967,7 @@ class FlowRunner:
 
         for _entity_id, index_to_summary, _state in entity_results:
             for row_index, running_summary in index_to_summary.items():
-                processed_df.at[row_index, "summary_all_context"] = running_summary
+                processed_df.at[row_index, self._output_col] = running_summary
             self._checkpoint.mark_completed(_entity_id)
 
         entity_states: List[Tuple[Any, MessyTextConversationState]] = [
@@ -1071,7 +1110,7 @@ class FlowRunner:
             step (StepConfig): Step config for resource selection.
 
         Returns:
-            pd.DataFrame: DataFrame with ``summary_all_context`` populated.
+            pd.DataFrame: DataFrame with the configured output field populated.
         """
         flow = self.schema.flow
         text_col = str(self._column_hints.get("text", "text"))
@@ -1093,8 +1132,8 @@ class FlowRunner:
         )
 
         processed_df = df.copy()
-        if "summary_all_context" not in processed_df.columns:
-            processed_df["summary_all_context"] = ""
+        if self._output_col not in processed_df.columns:
+            processed_df[self._output_col] = ""
 
         semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
 
@@ -1119,7 +1158,7 @@ class FlowRunner:
             desc="Summarising rows", disable=not use_pb,
         ):
             row_index, summary = await completed
-            processed_df.at[row_index, "summary_all_context"] = summary
+            processed_df.at[row_index, self._output_col] = summary
 
         return processed_df
 
@@ -1132,14 +1171,14 @@ class FlowRunner:
         df: pd.DataFrame,
         step: StepConfig,
     ) -> pd.DataFrame:
-        """Classify every row using its existing ``summary_all_context``.
+        """Classify every row using its existing output summary field.
 
         Mirrors the async path in ``scripts/run_classification.py``: each
         row's summary is classified per taxonomy key concurrently.
 
         Args:
-            df (pd.DataFrame): Input DataFrame (must have
-                ``summary_all_context``).
+            df (pd.DataFrame): Input DataFrame (must have the configured
+                output field).
             step (StepConfig): Step config; ``step.keys`` can restrict
                 the taxonomy keys to a subset.
 
@@ -1190,7 +1229,7 @@ class FlowRunner:
         doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
         tasks = []
         for row in processed_df.itertuples():
-            summary = getattr(row, "summary_all_context", "")
+            summary = getattr(row, self._output_col, "")
             doc_id = getattr(row, doc_id_col, row.Index)
             tasks.append(_classify_row(row.Index, summary, doc_id))
 
@@ -1288,8 +1327,8 @@ class FlowRunner:
         )
 
         processed_df = df.copy()
-        if "summary_all_context" not in processed_df.columns:
-            processed_df["summary_all_context"] = ""
+        if self._output_col not in processed_df.columns:
+            processed_df[self._output_col] = ""
 
         entity_groups = list(processed_df.groupby(entity_id_col))
 
@@ -1355,7 +1394,7 @@ class FlowRunner:
 
         for _eid, idx_to_summary, _st in entity_results:
             for row_idx, summary in idx_to_summary.items():
-                processed_df.at[row_idx, "summary_all_context"] = summary
+                processed_df.at[row_idx, self._output_col] = summary
             self._checkpoint.mark_completed(_eid)
 
         entity_states = [(eid, st) for eid, _, st in entity_results]
@@ -1410,8 +1449,8 @@ class FlowRunner:
         orchestrator = AsyncTextConversationOrchestrator(summary_processor)
 
         processed_df = df.copy()
-        if "summary_all_context" not in processed_df.columns:
-            processed_df["summary_all_context"] = ""
+        if self._output_col not in processed_df.columns:
+            processed_df[self._output_col] = ""
 
         entity_groups = list(processed_df.groupby(entity_id_col))
 
@@ -1493,7 +1532,7 @@ class FlowRunner:
 
         for _eid, idx_to_summary, _st in entity_results:
             for row_idx, summary in idx_to_summary.items():
-                processed_df.at[row_idx, "summary_all_context"] = summary
+                processed_df.at[row_idx, self._output_col] = summary
             self._checkpoint.mark_completed(_eid)
 
         entity_states = [(eid, st) for eid, _, st in entity_results]
@@ -1513,8 +1552,8 @@ class FlowRunner:
         configured.
 
         Args:
-            processed_df (pd.DataFrame): DataFrame augmented with
-                ``summary_all_context`` and ``model``.
+            processed_df (pd.DataFrame): DataFrame augmented with the
+                configured output fields and ``model``.
             entity_states (List[Tuple[Any, MessyTextConversationState]]):
                 Per-entity conversation states.
             model_name (str): Model identifier used for the ``model``
@@ -1532,11 +1571,12 @@ class FlowRunner:
         )
         processed_df = processed_df.copy()
         processed_df["model"] = model_name
-        if "summary_all_context" in processed_df.columns:
-            processed_df["summary_all_context"] = processed_df["summary_all_context"].replace(
-                ["No information", "No relevant information found"],
-                "",
-            )
+        for _field in self._output_fields:
+            if _field in processed_df.columns:
+                processed_df[_field] = processed_df[_field].replace(
+                    ["No information", "No relevant information found"],
+                    "",
+                )
 
         if passthrough_columns:
             dropped_passthrough = [
@@ -1749,9 +1789,28 @@ def build_flow(
             "server's TaxonomyRepository to resolve. When running from the "
             "CLI, use a filesystem path instead."
         )
+    elif not flow_config.taxonomy or not Path(flow_config.taxonomy).exists():
+        taxonomy_payload: Dict[str, Any] = {
+            "context_definitions": {},
+            "label_options": {},
+        }
+        logging.getLogger(__name__).warning(
+            "Taxonomy file %r not found or not configured; "
+            "proceeding with empty taxonomy.",
+            flow_config.taxonomy,
+        )
     else:
         taxonomy_payload = _load_json_file(Path(flow_config.taxonomy))
-    prompts_payload = _load_json_file(Path(flow_config.prompts))
+
+    prompts_path = Path(flow_config.prompts)
+    if prompts_path.exists():
+        prompts_payload = _load_json_file(prompts_path)
+    else:
+        prompts_payload: Dict[str, Any] = {}
+        logging.getLogger(__name__).warning(
+            "Prompts file %r not found; proceeding without prompts.json fallback.",
+            flow_config.prompts,
+        )
 
     registry = get_default_registry()
 

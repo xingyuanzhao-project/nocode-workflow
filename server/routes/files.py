@@ -24,15 +24,76 @@ Invariants enforced by this module
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from pathlib import Path, PurePosixPath
 
-from server.dependencies import get_csv_uploader
-from server.schemas.files import CSVUploadResponse, DataFileListResponse
+import pandas as pd
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+
+from server.dependencies import get_csv_uploader, get_server_paths
+from server.schemas.files import (
+    ColumnHeadersResponse,
+    CSVUploadResponse,
+    DataFileListResponse,
+)
 from server.services.csv_uploader import CSVUploader
+from server.storage.paths import ServerPaths
+
+
+def _resolve_stored_path(paths: ServerPaths, stored_path: str) -> Path:
+    """Resolve a project-root-relative stored_path to an absolute Path."""
+    depth = len(PurePosixPath(paths.data_dir_relative_posix).parts)
+    project_root = paths.data_dir
+    for _ in range(depth):
+        project_root = project_root.parent
+    resolved = (project_root / stored_path).resolve()
+    if not resolved.is_relative_to(paths.data_dir):
+        raise HTTPException(
+            status_code=400, detail="Path does not resolve inside data directory"
+        )
+    return resolved
 
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 """Router exposing file-upload endpoints."""
+
+
+@router.get("/columns", response_model=ColumnHeadersResponse)
+def get_column_headers(
+    path: str = Query(..., description="Project-root-relative stored_path of the CSV"),
+    paths: ServerPaths = Depends(get_server_paths),
+) -> ColumnHeadersResponse:
+    """Return column headers for a stored CSV file.
+
+    Only CSV files are supported; JSON/JSONL files do not have fixed
+    column headers.
+
+    Args:
+        path: The ``stored_path`` value as returned by the file list or
+            upload endpoint (e.g. ``server/data/uploads/<id>.csv``).
+        paths: Injected server paths.
+
+    Returns:
+        ColumnHeadersResponse: List of column header strings.
+    """
+    resolved = _resolve_stored_path(paths, path)
+
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    if resolved.suffix.lower() != ".csv":
+        raise HTTPException(
+            status_code=400,
+            detail="Column header introspection is only supported for CSV files",
+        )
+
+    try:
+        df = pd.read_csv(resolved, nrows=0)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Cannot read CSV headers: {exc}"
+        ) from exc
+
+    return ColumnHeadersResponse(columns=[str(c) for c in df.columns.tolist()])
 
 
 @router.get("/list", response_model=DataFileListResponse)

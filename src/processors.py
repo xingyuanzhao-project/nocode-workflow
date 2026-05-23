@@ -302,8 +302,8 @@ class MessyTextLogicMixin:
             logger: Logger instance.
         """
         self.config = config
-        self.definitions = taxonomy['context_definitions']
-        self.labels = taxonomy['label_options']
+        self.definitions = taxonomy.get('context_definitions', {})
+        self.labels = taxonomy.get('label_options', {})
         self.logger = logger
         self.model_name = config['model']['name']
 
@@ -353,11 +353,8 @@ class MessyTextLogicMixin:
           ``response_format`` argument sent to the LLM, replacing the
           method's historical hardcoded dict.
 
-        When neither key is set (direct callers outside the flow runner),
-        the method falls back to its historical behavior of reading
-        ``self.config['prompts']['summary']`` and emitting the hardcoded
-        ``summary`` response schema, byte-for-byte identical to the
-        pre-registry runtime.
+        When neither key is set the method raises ``ValueError`` — the
+        processor node's YAML config must provide prompt instructions.
 
         Args:
             text (str): The cleaned text to summarize.
@@ -369,26 +366,26 @@ class MessyTextLogicMixin:
             or the hardcoded ``summary`` schema, depending on what the
             flow runner injected.
         """
-        prompts_cfg = self.config.get("prompts") or {}
-        summary_cfg = prompts_cfg.get("summary") or {}
         prompt_resolved: Optional[ResolvedPrompt] = self.config.get("prompt_resolved")
         io_schema_resolved: Optional[IOSchema] = self.config.get("io_schema_resolved")
 
-        if prompt_resolved is not None:
-            instructions_template = list(prompt_resolved.instructions)
-        else:
-            instructions_template = summary_cfg.get("instructions")
+        if prompt_resolved is None:
+            raise ValueError(
+                "No prompt configuration found for this step. "
+                "Provide prompt.instructions in the processor node's YAML config."
+            )
+        instructions_template = list(prompt_resolved.instructions)
 
-        if prompt_resolved is not None and prompt_resolved.output_format is not None:
+        if prompt_resolved.output_format is not None:
             output_format = prompt_resolved.output_format
         elif io_schema_resolved is not None:
             output_format = to_prompt_output_format_text(io_schema_resolved)
         else:
-            output_format = summary_cfg.get("output_format")
+            output_format = None
 
-        if output_format is None or instructions_template is None:
+        if output_format is None:
             raise ValueError(
-                "Summary prompt configuration must provide 'output_format' and 'instructions'."
+                "Summary prompt configuration must provide 'output_format'."
             )
 
         instructions = [
@@ -461,10 +458,8 @@ class MessyTextLogicMixin:
           ``output_format`` (if no prompt-level override sets one) and
           the LLM ``response_format`` dict.
 
-        When neither key is set the method falls back to the historical
-        ``prompts.json`` lookup (``summary_update`` > ``summary_first`` >
-        ``summary``) and the hardcoded ``conversation_summary`` response
-        schema, byte-for-byte identical to the pre-registry runtime.
+        When neither key is set the method raises ``ValueError`` — the
+        processor node's YAML config must provide prompt instructions.
 
         Args:
             previous_summary (Optional[str]): The running summary from earlier
@@ -479,24 +474,10 @@ class MessyTextLogicMixin:
             ``conversation_summary`` schema, depending on what the flow
             runner injected.
         """
-        prompts_cfg = self.config.get("prompts") or {}
         prompt_resolved: Optional[ResolvedPrompt] = self.config.get("prompt_resolved")
         io_schema_resolved: Optional[IOSchema] = self.config.get("io_schema_resolved")
 
         has_previous = bool(previous_summary and previous_summary.strip())
-        if has_previous:
-            summary_cfg = (
-                prompts_cfg.get("summary_update")
-                or prompts_cfg.get("summary_first")
-                or prompts_cfg.get("summary")
-                or {}
-            )
-        else:
-            summary_cfg = (
-                prompts_cfg.get("summary_first")
-                or prompts_cfg.get("summary")
-                or {}
-            )
 
         # Derive previous_relevant_context and previous_summary_by_item from the last
         # structured conversation result, if available. This allows prompt templates
@@ -525,19 +506,22 @@ class MessyTextLogicMixin:
         if prompt_resolved is not None:
             instructions_template = list(prompt_resolved.instructions)
         else:
-            instructions_template = summary_cfg.get("instructions")
+            raise ValueError(
+                "No prompt configuration found for this step. "
+                "Provide prompt.instructions in the processor node's YAML config."
+            )
 
-        if prompt_resolved is not None and prompt_resolved.output_format is not None:
+        if prompt_resolved.output_format is not None:
             output_format = prompt_resolved.output_format
         elif io_schema_resolved is not None:
             output_format = to_prompt_output_format_text(io_schema_resolved)
         else:
-            output_format = summary_cfg.get("output_format")
+            output_format = None
 
-        if output_format is None or instructions_template is None:
+        if output_format is None:
             raise ValueError(
                 "Conversation summary prompt configuration must provide "
-                "'output_format' and 'instructions'."
+                "'output_format' (via prompt or io_schema in the processor node's YAML config)."
             )
 
         # Allow prompt templates to reference previous_summary, previous structured
@@ -646,10 +630,8 @@ class MessyTextLogicMixin:
           ``response_format`` argument sent to the LLM, replacing the
           method's historical hardcoded ``classification`` schema.
 
-        When neither key is set (direct callers outside the flow runner),
-        the method falls back to the historical
-        ``self.config['prompts']['classification']['instructions']``
-        lookup and the hardcoded ``classification`` response schema.
+        When neither key is set the method raises ``ValueError`` — the
+        processor node's YAML config must provide prompt instructions.
 
         Args:
             summary (str): The summarized text to classify.
@@ -673,20 +655,15 @@ class MessyTextLogicMixin:
             self.logger.error(f"Key '{key}' not found in definitions")
             return None
 
-        prompts_cfg = self.config.get("prompts") or {}
-        classification_cfg = prompts_cfg.get("classification") or {}
         prompt_resolved: Optional[ResolvedPrompt] = self.config.get("prompt_resolved")
         io_schema_resolved: Optional[IOSchema] = self.config.get("io_schema_resolved")
 
-        if prompt_resolved is not None:
-            instructions_template = list(prompt_resolved.instructions)
-        else:
-            instructions_template = classification_cfg.get("instructions")
-
-        if not instructions_template:
+        if prompt_resolved is None:
             raise ValueError(
-                "Classification prompt configuration must provide 'instructions' list."
+                "No prompt configuration found for this step. "
+                "Provide prompt.instructions in the processor node's YAML config."
             )
+        instructions_template = list(prompt_resolved.instructions)
 
         # Apply formatting uniformly so any placeholder like {possible_values}
         # can be replaced, while literal JSON braces are preserved via {{ }} in
@@ -852,11 +829,19 @@ class MessyTextProcessor(MessyTextLogicMixin):
             return "No relevant information found"
 
         kwargs = self._get_summary_args(text)
+        self.logger.info(
+            "[LLM INPUT] model=%s task=summary doc_id=%s\n%s",
+            self.model_name, doc_id,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
-            self.logger.error(f"Summarization failed: {e}")
-            # Store an error result so callers can still inspect input.
+            self.logger.error(
+                "Summarization failed for doc_id=%s: %s\nRequest messages:\n%s",
+                doc_id, e,
+                json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+            )
             messages = kwargs.get("messages", []) or [{}]
             input_text = str(messages[0].get("content", ""))
             self.last_summary_result = ProcessorResult(
@@ -874,7 +859,15 @@ class MessyTextProcessor(MessyTextLogicMixin):
             )
             return "No relevant information found"
 
-        # Normal path: construct and store the full result, then return summary text.
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=summary doc_id=%s\n%s",
+            self.model_name, doc_id, raw_output,
+        )
+
         self.last_summary_result = ProcessorResult.from_llm_call(
             task_name="summary",
             model_name=self.model_name,
@@ -910,7 +903,6 @@ class MessyTextProcessor(MessyTextLogicMixin):
         """
         kwargs = self._get_classification_args(summary, key)
         if kwargs is None:
-            # Nothing to classify (e.g. no summary): record an empty result.
             self.last_classification_result = ProcessorResult(
                 task_name="classification",
                 model_name=self.model_name,
@@ -926,10 +918,19 @@ class MessyTextProcessor(MessyTextLogicMixin):
             )
             return "No information"
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=classification doc_id=%s key=%s\n%s",
+            self.model_name, doc_id, key,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
-            self.logger.error(f"Classification failed for {key}: {e}")
+            self.logger.error(
+                "Classification failed for doc_id=%s key=%s: %s\nRequest messages:\n%s",
+                doc_id, key, e,
+                json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+            )
             messages = kwargs.get("messages", []) or [{}]
             input_text = str(messages[0].get("content", ""))
             self.last_classification_result = ProcessorResult(
@@ -946,6 +947,15 @@ class MessyTextProcessor(MessyTextLogicMixin):
                 metadata={},
             )
             return "No information"
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=classification doc_id=%s key=%s\n%s",
+            self.model_name, doc_id, key, raw_output,
+        )
 
         self.last_classification_result = ProcessorResult.from_llm_call(
             task_name="classification",
@@ -1024,6 +1034,11 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
             return "No relevant information found"
 
         kwargs = self._get_summary_args(text)
+        self.logger.info(
+            "[LLM INPUT] model=%s task=summary doc_id=%s\n%s",
+            self.model_name, doc_id,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             if self._llm_semaphore:
                 async with self._llm_semaphore:
@@ -1031,7 +1046,11 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
             else:
                 response = await self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
-            self.logger.error(f"Summarization failed: {e}")
+            self.logger.error(
+                "Summarization failed for doc_id=%s: %s\nRequest messages:\n%s",
+                doc_id, e,
+                json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+            )
             messages = kwargs.get("messages", []) or [{}]
             input_text = str(messages[0].get("content", ""))
             self.last_summary_result = ProcessorResult(
@@ -1048,6 +1067,15 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
                 metadata={},
             )
             return "No relevant information found"
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=summary doc_id=%s\n%s",
+            self.model_name, doc_id, raw_output,
+        )
 
         self.last_summary_result = ProcessorResult.from_llm_call(
             task_name="summary",
@@ -1098,6 +1126,11 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
             )
             return "No information"
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=classification doc_id=%s key=%s\n%s",
+            self.model_name, doc_id, key,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             if self._llm_semaphore:
                 async with self._llm_semaphore:
@@ -1105,7 +1138,11 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
             else:
                 response = await self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
-            self.logger.error(f"Classification failed for {key}: {e}")
+            self.logger.error(
+                "Classification failed for doc_id=%s key=%s: %s\nRequest messages:\n%s",
+                doc_id, key, e,
+                json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+            )
             messages = kwargs.get("messages", []) or [{}]
             input_text = str(messages[0].get("content", ""))
             self.last_classification_result = ProcessorResult(
@@ -1122,6 +1159,15 @@ class AsyncMessyTextProcessor(MessyTextLogicMixin):
                 metadata={},
             )
             return "No information"
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=classification doc_id=%s key=%s\n%s",
+            self.model_name, doc_id, key, raw_output,
+        )
 
         self.last_classification_result = ProcessorResult.from_llm_call(
             task_name="classification",
@@ -1214,9 +1260,21 @@ class MessyTextConversationTurnProcessor:
                 previous_summary=conversation_state.last_summary,
                 text=cleaned_text,
             )
+            self.processor.logger.info(
+                "[LLM INPUT] model=%s task=conversation_summary doc_id=%s\n%s",
+                self.processor.model_name, doc_id,
+                json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+            )
             try:
                 response = self.processor.client.chat.completions.create(**kwargs)
-                # Construct a structured result from the guided JSON output.
+                raw_output = (
+                    response.choices[0].message.content
+                    if response.choices else "NO CHOICES"
+                )
+                self.processor.logger.info(
+                    "[LLM OUTPUT] model=%s task=conversation_summary doc_id=%s\n%s",
+                    self.processor.model_name, doc_id, raw_output,
+                )
                 result = ProcessorResult.from_llm_call(
                     task_name="conversation_summary",
                     model_name=self.processor.model_name,
@@ -1421,8 +1479,21 @@ class AsyncMessyTextConversationTurnProcessor:
                 previous_summary=conversation_state.last_summary,
                 text=cleaned_text,
             )
+            self.processor.logger.info(
+                "[LLM INPUT] model=%s task=conversation_summary doc_id=%s\n%s",
+                self.processor.model_name, doc_id,
+                json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+            )
             try:
                 response = await self.processor.client.chat.completions.create(**kwargs)
+                raw_output = (
+                    response.choices[0].message.content
+                    if response.choices else "NO CHOICES"
+                )
+                self.processor.logger.info(
+                    "[LLM OUTPUT] model=%s task=conversation_summary doc_id=%s\n%s",
+                    self.processor.model_name, doc_id, raw_output,
+                )
                 result = ProcessorResult.from_llm_call(
                     task_name="conversation_summary",
                     model_name=self.processor.model_name,
@@ -1828,6 +1899,11 @@ class LabelExtractor(LabelExtractorLogicMixin):
             previous_spans=previous_spans,
         )
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=label_extract doc_id=%s label_key=%s\n%s",
+            self.model_name, doc_id, self.label_key,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
@@ -1847,6 +1923,15 @@ class LabelExtractor(LabelExtractorLogicMixin):
                 error=str(e),
                 metadata={"label_key": self.label_key},
             )
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=label_extract doc_id=%s label_key=%s\n%s",
+            self.model_name, doc_id, self.label_key, raw_output,
+        )
 
         result = ProcessorResult.from_llm_call(
             task_name="label_extract",
@@ -1937,6 +2022,11 @@ class AsyncLabelExtractor(LabelExtractorLogicMixin):
             previous_spans=previous_spans,
         )
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=label_extract doc_id=%s label_key=%s\n%s",
+            self.model_name, doc_id, self.label_key,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             if self._llm_semaphore:
                 async with self._llm_semaphore:
@@ -1960,6 +2050,15 @@ class AsyncLabelExtractor(LabelExtractorLogicMixin):
                 error=str(e),
                 metadata={"label_key": self.label_key},
             )
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=label_extract doc_id=%s label_key=%s\n%s",
+            self.model_name, doc_id, self.label_key, raw_output,
+        )
 
         result = ProcessorResult.from_llm_call(
             task_name="label_extract",
@@ -2013,8 +2112,8 @@ class TextLabelsSummaryLogicMixin:
             logger (logging.Logger): Logger instance.
         """
         self.config = config
-        self.definitions = taxonomy['context_definitions']
-        self.labels = taxonomy['label_options']
+        self.definitions = taxonomy.get('context_definitions', {})
+        self.labels = taxonomy.get('label_options', {})
         self.logger = logger
         self.model_name = config['model']['name']
 
@@ -2367,6 +2466,11 @@ class TextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
             previous_summary=previous_summary,
         )
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=label_summary doc_id=%s\n%s",
+            self.model_name, doc_id,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
@@ -2391,6 +2495,15 @@ class TextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
                 error=str(e),
                 metadata={},
             )
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=label_summary doc_id=%s\n%s",
+            self.model_name, doc_id, raw_output,
+        )
 
         return ProcessorResult.from_llm_call(
             task_name="label_summary",
@@ -2442,6 +2555,11 @@ class TextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
 
         kwargs = self._get_synthesis_args(per_doc_summaries=non_empty)
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=label_synthesis doc_id=%s\n%s",
+            self.model_name, doc_id,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             response = self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
@@ -2461,6 +2579,15 @@ class TextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
                 error=str(e),
                 metadata={},
             )
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=label_synthesis doc_id=%s\n%s",
+            self.model_name, doc_id, raw_output,
+        )
 
         return ProcessorResult.from_llm_call(
             task_name="label_synthesis",
@@ -2554,6 +2681,11 @@ class AsyncTextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
             previous_summary=previous_summary,
         )
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=label_summary doc_id=%s\n%s",
+            self.model_name, doc_id,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             if self._llm_semaphore:
                 async with self._llm_semaphore:
@@ -2582,6 +2714,15 @@ class AsyncTextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
                 error=str(e),
                 metadata={},
             )
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=label_summary doc_id=%s\n%s",
+            self.model_name, doc_id, raw_output,
+        )
 
         return ProcessorResult.from_llm_call(
             task_name="label_summary",
@@ -2634,6 +2775,11 @@ class AsyncTextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
 
         kwargs = self._get_synthesis_args(per_doc_summaries=non_empty)
 
+        self.logger.info(
+            "[LLM INPUT] model=%s task=label_synthesis doc_id=%s\n%s",
+            self.model_name, doc_id,
+            json.dumps(kwargs.get("messages", []), indent=2, ensure_ascii=False),
+        )
         try:
             if self._llm_semaphore:
                 async with self._llm_semaphore:
@@ -2657,6 +2803,15 @@ class AsyncTextLabelsSummaryProcessor(TextLabelsSummaryLogicMixin):
                 error=str(e),
                 metadata={},
             )
+
+        raw_output = (
+            response.choices[0].message.content
+            if response.choices else "NO CHOICES"
+        )
+        self.logger.info(
+            "[LLM OUTPUT] model=%s task=label_synthesis doc_id=%s\n%s",
+            self.model_name, doc_id, raw_output,
+        )
 
         return ProcessorResult.from_llm_call(
             task_name="label_synthesis",

@@ -74,6 +74,9 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
 
   const output_path =
     typeof node.data.output_path === "string" ? node.data.output_path : "";
+  const output_fields = Array.isArray(node.data.output_fields)
+    ? (node.data.output_fields as string[]).filter(Boolean)
+    : ["summary"];
   const artifact_paths = Array.isArray(node.data.artifact_paths)
     ? (node.data.artifact_paths as string[])
     : [];
@@ -93,6 +96,33 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
       set_dirty(true);
     },
     [node.id, update_node_data, set_dirty],
+  );
+
+  const on_add_output_field = useCallback(() => {
+    update_node_data(node.id, {
+      output_fields: [...output_fields, ""],
+    });
+    set_dirty(true);
+  }, [node.id, output_fields, update_node_data, set_dirty]);
+
+  const on_remove_output_field = useCallback(
+    (index: number) => {
+      if (output_fields.length <= 1) return;
+      update_node_data(node.id, {
+        output_fields: output_fields.filter((_, i) => i !== index),
+      });
+      set_dirty(true);
+    },
+    [node.id, output_fields, update_node_data, set_dirty],
+  );
+
+  const on_output_field_change = useCallback(
+    (index: number, value: string) => {
+      const next = output_fields.map((f, i) => (i === index ? value : f));
+      update_node_data(node.id, { output_fields: next });
+      set_dirty(true);
+    },
+    [node.id, output_fields, update_node_data, set_dirty],
   );
 
   const on_add_artifact = useCallback(() => {
@@ -132,6 +162,41 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
           onChange={(event) => on_output_path_change(event.target.value)}
         />
       </label>
+      <div className="flex flex-col gap-1">
+        <span className="font-medium">Output Fields</span>
+        {output_fields.map((field, index) => (
+          <div key={index} className="flex items-center gap-1">
+            <input
+              className="flex-1 rounded-md border bg-background px-2 py-1 text-sm"
+              placeholder="e.g. summary"
+              value={field}
+              onChange={(event) =>
+                on_output_field_change(index, event.target.value)
+              }
+            />
+            {output_fields.length > 1 && (
+              <button
+                type="button"
+                className="rounded-md border px-1.5 py-1 text-sm text-muted-foreground hover:text-foreground"
+                title="Remove field"
+                onClick={() => on_remove_output_field(index)}
+              >
+                &times;
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          className="mt-1 w-fit rounded-md border bg-secondary px-2 py-1 text-secondary-foreground hover:bg-accent"
+          onClick={on_add_output_field}
+        >
+          + Add Field
+        </button>
+        <span className="text-muted-foreground">
+          Field names become column headers in the output CSV.
+        </span>
+      </div>
       <div className="flex flex-col gap-1">
         <span className="font-medium">Artifact paths (optional)</span>
         {artifact_paths.map((path, index) => (

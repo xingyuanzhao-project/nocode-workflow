@@ -39,6 +39,7 @@ from fastapi import Request
 
 from server.services.csv_uploader import CSVUploader
 from server.services.flow_repository import FlowRepository
+from server.storage.paths import ServerPaths
 from server.services.flow_validation import FlowValidator
 from server.services.log_stream import LogStreamService
 from server.services.model_list_proxy import ModelListProxy
@@ -98,6 +99,18 @@ def get_taxonomy_repository(request: Request) -> TaxonomyRepository:
         TaxonomyRepository: The taxonomy repository service.
     """
     return request.app.state.taxonomy_repository
+
+
+def get_server_paths(request: Request) -> ServerPaths:
+    """Return the process-wide :class:`ServerPaths` from ``app.state``.
+
+    Args:
+        request (Request): The incoming request.
+
+    Returns:
+        ServerPaths: The server paths dataclass.
+    """
+    return request.app.state.paths
 
 
 def get_csv_uploader(request: Request) -> CSVUploader:
