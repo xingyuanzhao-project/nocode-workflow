@@ -7,13 +7,13 @@
  *   run reaches a terminal state.
  * - Show live logs via :func:`use_run_log_stream` +
  *   :class:`LogStreamViewer`.
- * - When the run succeeds, fetch the summary preview via
- *   :func:`previewRunArtifact` and render it with
- *   :class:`ResultsPreviewTable`; expose artifact-download buttons.
+ * - When the run succeeds, fetch the output preview via
+ *   :func:`previewRunOutput` and render it with
+ *   :class:`ResultsPreviewTable`; expose output download button.
  * - Offer a Resume button for failed / cancelled runs.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useMutation,
   useQuery,
@@ -22,18 +22,11 @@ import {
 import { Link, useParams } from "react-router-dom";
 
 import { getRunStatus, resumeRun } from "@/api/flows";
-import {
-  artifactDownloadUrl,
-  previewRunArtifact,
-} from "@/api/runs";
+import { outputDownloadUrl, previewRunOutput } from "@/api/runs";
 import { Button } from "@/components/ui/button";
 import { LogStreamViewer } from "@/components/LogStreamViewer";
 import { ResultsPreviewTable } from "@/components/ResultsPreviewTable";
 import { useRunLogStream } from "@/hooks/use_run_log_stream";
-import {
-  ARTIFACT_NAMES,
-  type ArtifactName,
-} from "@/schemas/results";
 import {
   TERMINAL_RUN_STATUSES,
   type RunStatus,
@@ -77,8 +70,7 @@ export default function RunPage(): JSX.Element {
 
   const preview_query = useQuery({
     queryKey: ["run-preview", run_id],
-    queryFn: () =>
-      previewRunArtifact(run_id as string, "summary", PREVIEW_ROW_LIMIT),
+    queryFn: () => previewRunOutput(run_id as string, PREVIEW_ROW_LIMIT),
     enabled: Boolean(run_id) && status_query.data?.status === "succeeded",
     staleTime: 30_000,
   });
@@ -97,7 +89,6 @@ export default function RunPage(): JSX.Element {
         started_at: null,
         finished_at: null,
         error: null,
-        completed_entity_count: 0,
       });
       query_client.invalidateQueries({ queryKey: ["run-status", response.run_id] });
     },
@@ -110,11 +101,6 @@ export default function RunPage(): JSX.Element {
           Run <span className="font-mono text-sm">{run_id}</span>
         </h1>
         <StatusBadge status={status_query.data?.status ?? null} />
-        <span className="text-xs text-muted-foreground">
-          {status_query.data?.completed_entity_count
-            ? `${status_query.data.completed_entity_count.toLocaleString()} entities completed`
-            : null}
-        </span>
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" asChild>
             <Link to="/flows">Back to flows</Link>
@@ -131,6 +117,14 @@ export default function RunPage(): JSX.Element {
         </div>
       </header>
 
+      <TqdmProgress
+        status={status_query.data?.status ?? null}
+        completed_count={status_query.data?.completed_entity_count ?? 0}
+        total_count={status_query.data?.total_row_count ?? 0}
+        started_at={status_query.data?.started_at ?? null}
+        finished_at={status_query.data?.finished_at ?? null}
+      />
+
       {status_query.data?.error ? (
         <div className="rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {status_query.data.error}
@@ -138,7 +132,7 @@ export default function RunPage(): JSX.Element {
       ) : null}
 
       <section className="flex min-h-0 flex-1 gap-4">
-        <div className="flex w-[45%] min-w-[24rem] flex-col gap-3">
+        <div className="flex w-1/2 flex-col gap-3">
           <div className="flex min-h-0 flex-1">
             <LogStreamViewer
               lines={log_stream.lines}
@@ -147,25 +141,18 @@ export default function RunPage(): JSX.Element {
             />
           </div>
         </div>
-        <div className="flex flex-1 flex-col gap-3">
+        <div className="flex w-1/2 flex-col gap-3 overflow-hidden">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold">Artifacts</h2>
-            {ARTIFACT_NAMES.map((artifact_name: ArtifactName) => (
-              <a
-                key={artifact_name}
-                href={
-                  run_id ? artifactDownloadUrl(run_id, artifact_name) : "#"
-                }
+            <h2 className="text-sm font-semibold">Output</h2>
+            <a href={run_id ? outputDownloadUrl(run_id) : "#"}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!is_terminal || status_query.data?.status !== "succeeded"}
               >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!is_terminal || status_query.data?.status !== "succeeded"}
-                >
-                  Download {artifact_name}.csv
-                </Button>
-              </a>
-            ))}
+                Download output
+              </Button>
+            </a>
           </div>
           <ResultsPreviewTable
             preview={preview_query.data ?? null}
@@ -221,4 +208,105 @@ function StatusBadge({ status }: StatusBadgeProps): JSX.Element {
       {status}
     </span>
   );
+}
+
+const BAR_WIDTH = 20;
+const FILLED_CHAR = "\u2588"; // █
+const EMPTY_CHAR = "\u2591"; // ░
+
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function formatSpeed(rows_per_sec: number): string {
+  if (rows_per_sec >= 10) return `${rows_per_sec.toFixed(0)} rows/s`;
+  if (rows_per_sec >= 1) return `${rows_per_sec.toFixed(1)} rows/s`;
+  return `${rows_per_sec.toFixed(2)} rows/s`;
+}
+
+interface TqdmProgressProps {
+  status: RunStatus | null;
+  completed_count: number;
+  total_count: number;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+function TqdmProgress({
+  status,
+  completed_count,
+  total_count,
+  started_at,
+  finished_at,
+}: TqdmProgressProps): JSX.Element {
+  const now = useNow(status === "running" ? 1_000 : null);
+
+  const elapsed_seconds = useMemo(() => {
+    if (!started_at) return 0;
+    const start = new Date(started_at).getTime();
+    const end = finished_at ? new Date(finished_at).getTime() : now;
+    return Math.max(0, (end - start) / 1_000);
+  }, [started_at, finished_at, now]);
+
+  const speed = elapsed_seconds > 0 ? completed_count / elapsed_seconds : 0;
+
+  if (status === "queued" || status === null) {
+    return (
+      <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+        Queued
+      </div>
+    );
+  }
+
+  if (status === "succeeded") {
+    const bar = FILLED_CHAR.repeat(BAR_WIDTH);
+    const counts = total_count > 0
+      ? `${total_count.toLocaleString()}/${total_count.toLocaleString()}`
+      : `${completed_count.toLocaleString()} rows`;
+    return (
+      <div className="rounded-md bg-green-50 px-3 py-2 font-mono text-xs text-green-700 dark:bg-green-950/30 dark:text-green-400">
+        Done: {bar}  {counts} [{formatDuration(elapsed_seconds)}]
+      </div>
+    );
+  }
+
+  if (status === "failed" || status === "cancelled") {
+    const label = status === "failed" ? "Failed" : "Cancelled";
+    return (
+      <div className="rounded-md bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
+        {label} after {completed_count.toLocaleString()} rows [{formatDuration(elapsed_seconds)}]
+      </div>
+    );
+  }
+
+  if (total_count > 0) {
+    const ratio = Math.min(completed_count / total_count, 1);
+    const filled = Math.round(ratio * BAR_WIDTH);
+    const bar = FILLED_CHAR.repeat(filled) + EMPTY_CHAR.repeat(BAR_WIDTH - filled);
+    const remaining_seconds = speed > 0 ? (total_count - completed_count) / speed : 0;
+    return (
+      <div className="rounded-md bg-blue-50 px-3 py-2 font-mono text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+        Processing: {bar}  {completed_count.toLocaleString()}/{total_count.toLocaleString()} [{formatDuration(elapsed_seconds)}{"<"}{formatDuration(remaining_seconds)}, {formatSpeed(speed)}]
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md bg-blue-50 px-3 py-2 font-mono text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+      Processing: {completed_count.toLocaleString()} rows [{formatDuration(elapsed_seconds)}, {formatSpeed(speed)}]
+    </div>
+  );
+}
+
+function useNow(interval_ms: number | null): number {
+  const [now, set_now] = useState(Date.now());
+  useEffect(() => {
+    if (interval_ms === null) return;
+    const id = setInterval(() => set_now(Date.now()), interval_ms);
+    return () => clearInterval(id);
+  }, [interval_ms]);
+  return now;
 }

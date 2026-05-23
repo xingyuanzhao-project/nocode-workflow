@@ -87,10 +87,8 @@ class NodeTypeEntry(BaseModel):
         label (str): Short human-readable name, suitable for a GUI palette
             entry.
         description (str): Longer human-readable description.
-        default_unit (Optional[str]): Default value the flow loader uses
-            when a step of this type omits ``unit``. One of ``"row"``,
-            ``"document"``, ``"entity"``, or ``None`` when not applicable
-            (data and resource nodes).
+        default_unit (Optional[str]): Always ``"row"`` for processors,
+            ``None`` for data and resource nodes.
         consumes (List[str]): Names of fields this node reads from the
             pipeline context. Informational for now; used by the future
             GUI edge validator.
@@ -110,8 +108,7 @@ class NodeTypeEntry(BaseModel):
             pointer (shape ``"path::key"`` or bare ``"key"``) used when
             the step does not supply its own. ``None`` when no default
             exists.
-        default_group_by (Optional[str]): Default ``group_by`` value used
-            when the step omits it.
+        default_group_by (Optional[str]): Deprecated, ignored.
 
     Methods:
         ensure_llm_backed_requires_provider: Enforce the cross-field

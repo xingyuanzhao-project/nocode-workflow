@@ -68,8 +68,6 @@ flow:
       type: csv_output
       config:
         output_path: results_custom/flat_summary_classification_summary.csv
-        artifact_paths:
-          - results_custom/flat_summary_classification_results.csv
         extend: false
 
   edges:

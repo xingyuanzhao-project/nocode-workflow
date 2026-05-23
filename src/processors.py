@@ -64,15 +64,28 @@ class GenericProcessor:
         text = _MULTI_NEWLINE_RE.sub("\n\n", text)
         return text.strip()
 
-    async def execute(self, text: str, *, doc_id: Any = None) -> Dict[str, Any]:
+    async def execute(
+        self, input_fields: Dict[str, str], *, row_index: int = 0,
+    ) -> Dict[str, Any]:
         """Call the LLM and return all output fields as a dict.
+
+        Args:
+            input_fields: Column-name → cleaned-value mapping for this row.
+            row_index: Positional row index for logging.
 
         On error or parse failure, returns a dict with all output keys
         set to empty string and logs the error.
         """
+        if len(input_fields) == 1:
+            user_content = next(iter(input_fields.values()))
+        else:
+            user_content = "\n\n".join(
+                f"[{field}]: {value}" for field, value in input_fields.items()
+            )
+
         messages = [
             {"role": "system", "content": self._system_message},
-            {"role": "user", "content": text},
+            {"role": "user", "content": user_content},
         ]
 
         kwargs: Dict[str, Any] = {
@@ -84,8 +97,8 @@ class GenericProcessor:
         }
 
         self.logger.info(
-            "[LLM INPUT] model=%s doc_id=%s messages=%s",
-            self.model_name, doc_id, json.dumps(messages, ensure_ascii=False),
+            "[LLM INPUT] model=%s row=%d messages=%s",
+            self.model_name, row_index, json.dumps(messages, ensure_ascii=False),
         )
 
         try:
@@ -98,8 +111,8 @@ class GenericProcessor:
             raw_content = response.choices[0].message.content or ""
 
             self.logger.info(
-                "[LLM OUTPUT] model=%s doc_id=%s content=%s",
-                self.model_name, doc_id, raw_content,
+                "[LLM OUTPUT] model=%s row=%d content=%s",
+                self.model_name, row_index, raw_content,
             )
 
             parsed = json.loads(raw_content)
@@ -113,7 +126,7 @@ class GenericProcessor:
 
         except Exception as exc:
             self.logger.error(
-                "[LLM ERROR] model=%s doc_id=%s error=%s",
-                self.model_name, doc_id, str(exc),
+                "[LLM ERROR] model=%s row=%d error=%s",
+                self.model_name, row_index, str(exc),
             )
             return {key: "" for key in self._output_keys}

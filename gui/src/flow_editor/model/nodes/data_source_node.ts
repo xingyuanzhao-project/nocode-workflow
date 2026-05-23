@@ -1,9 +1,8 @@
 /**
  * Typed node for ``csv_input`` / ``json_input`` palette items.
  *
- * Holds the user's chosen input file path and the column-role mappings
- * that tell the backend which CSV/JSON columns to use for each role
- * (e.g. ``text``, ``entity_id``).
+ * Holds the user's chosen input file path and the list of columns/fields
+ * to pass to the processor.
  */
 
 import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
@@ -11,32 +10,22 @@ import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
 /** ``csv_input`` and ``json_input`` are the same class with a different type. */
 export type DataSourceTypeId = "csv_input" | "json_input";
 
-export interface InputColumnEntry {
-  role: string;
-  column: string;
-}
-
-const DEFAULT_INPUT_COLUMNS: InputColumnEntry[] = [
-  { role: "text", column: "" },
-];
-
-function parse_input_columns(raw: unknown): InputColumnEntry[] {
-  if (!Array.isArray(raw) || raw.length === 0) return structuredClone(DEFAULT_INPUT_COLUMNS);
-  const result: InputColumnEntry[] = [];
+function parse_input_columns(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const result: string[] = [];
   for (const item of raw) {
-    if (
+    if (typeof item === "string" && item.length > 0) {
+      result.push(item);
+    } else if (
       typeof item === "object" &&
       item !== null &&
-      "role" in item &&
       "column" in item
     ) {
-      result.push({
-        role: String((item as Record<string, unknown>).role ?? ""),
-        column: String((item as Record<string, unknown>).column ?? ""),
-      });
+      const col = String((item as Record<string, unknown>).column ?? "");
+      if (col.length > 0) result.push(col);
     }
   }
-  return result.length > 0 ? result : structuredClone(DEFAULT_INPUT_COLUMNS);
+  return result;
 }
 
 export class DataSourceNode extends BaseNode {
@@ -45,7 +34,7 @@ export class DataSourceNode extends BaseNode {
   readonly label: string;
 
   selected_file: string | null = null;
-  input_columns: InputColumnEntry[] = structuredClone(DEFAULT_INPUT_COLUMNS);
+  input_columns: string[] = [];
 
   constructor(
     id: string,

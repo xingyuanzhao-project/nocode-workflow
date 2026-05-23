@@ -107,11 +107,15 @@ class PromptInline(BaseModel):
     Attributes:
         instructions (List[str]): Final instruction list sent to the
             LLM for this step.
+        output_format (Optional[Any]): Optional ``output_format`` dict
+            that the GUI may include alongside the inline instructions.
+            Carried through to :class:`ResolvedPrompt` when present.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     instructions: List[str] = Field(default_factory=list)
+    output_format: Optional[Any] = None
 
 
 class ResolvedPrompt(BaseModel):
@@ -235,7 +239,7 @@ def resolve_step_prompt(
     if inline_prompt is not None:
         return ResolvedPrompt(
             instructions=list(inline_prompt.instructions),
-            output_format=None,
+            output_format=inline_prompt.output_format,
         )
 
     base_prompt_dict: Optional[Dict[str, Any]] = None

@@ -89,12 +89,7 @@ Invariants enforced by this module
   "default"`` by the builder.
 - :attr:`StepConfig.type` is one of the ids whose ``category`` is
   ``processor`` in :mod:`src.node_registry`'s default registry.
-- :attr:`StepConfig.unit` is one of ``row`` / ``document`` / ``entity``.
-- Adjacent steps in :attr:`FlowConfig.steps` must have compatible
-  :attr:`StepConfig.unit` values (enforced by
-  :meth:`FlowConfig.validate_adjacent_unit_transitions`): ``row→row``,
-  ``document→document``, ``document→entity`` (aggregation), and
-  ``entity→entity`` are accepted; all other transitions are rejected.
+- :attr:`StepConfig.unit` must be ``"row"``.
 - Inline :attr:`StepConfig.prompt` and :attr:`StepConfig.prompts_ref`
   are mutually exclusive; :attr:`StepConfig.prompt_overrides` requires
   :attr:`StepConfig.prompts_ref`. Enforced by
@@ -133,26 +128,8 @@ def _registered_processor_step_types() -> FrozenSet[str]:
     return get_processor_step_types()
 
 
-UNIT_VALUES: frozenset[str] = frozenset({"row", "document", "entity"})
+UNIT_VALUES: frozenset[str] = frozenset({"row"})
 """Registered step ``unit`` values accepted by :class:`StepConfig`."""
-
-
-VALID_ADJACENT_UNIT_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("row", "row"),
-        ("document", "document"),
-        ("document", "entity"),
-        ("entity", "entity"),
-    }
-)
-"""Allowed ``(previous_unit, current_unit)`` pairs between neighbouring steps.
-
-``row→row`` keeps a flat row-wise pipeline. ``document→document`` and
-``entity→entity`` keep the stream at the same unit. ``document→entity``
-is the aggregation transition used by flows that first run per-document
-work and then roll up into a per-entity summary. Every other pair is
-rejected by :meth:`FlowConfig.validate_adjacent_unit_transitions` because
-the runner has no loop that mixes the two units."""
 
 
 SUPPORTED_INPUT_EXTENSIONS: frozenset[str] = frozenset({".csv", ".json", ".jsonl"})
@@ -412,11 +389,8 @@ class StepConfig(BaseModel):
     Attributes:
         type (str): Registered processor step-type id. Looked up in
             :mod:`src.node_registry`.
-        unit (str): One of :data:`UNIT_VALUES`. Declares the unit of
-            analysis the step operates on.
-        group_by (Optional[str]): Grouping rule. Currently accepts
-            ``"entity"`` for grouped loops; ``None`` means the runner
-            iterates rows directly.
+        unit (str): Always ``"row"``. Kept for YAML compatibility.
+        group_by (Optional[str]): Deprecated, ignored.
         llm (Optional[str]): Resource ``id`` this step uses. ``None`` means
             the builder wires the step to the resource with
             ``id = "default"``.
@@ -454,8 +428,8 @@ class StepConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    unit: str
-    group_by: Optional[str] = None
+    unit: str = "row"
+    group_by: Optional[str] = None  # deprecated, ignored
     llm: Optional[str] = None
     mode: Optional[str] = None
     keys: Optional[Any] = None
@@ -567,29 +541,15 @@ class AsyncConfig(BaseModel):
 class OutputConfig(BaseModel):
     """``flow.output:`` block: where runner results are written.
 
-    All four CSV paths are validated by
-    :func:`_validate_project_relative_posix_path` so they cross host and
-    container boundaries cleanly. The run dispatcher rewrites every one
-    of them to a run-scoped path under ``server/data/runs/<run_id>/``
-    before the YAML lands on disk.
-
     Attributes:
         summary_csv (str): Project-root-relative POSIX path for the
-            per-row summary CSV.
-        results_csv (Optional[str]): Project-root-relative POSIX path
-            for the flattened per-turn result CSV. ``None`` disables
-            results output.
-        states_csv (Optional[str]): Project-root-relative POSIX path
-            for the per-entity serialized state CSV. ``None`` disables
-            states output.
-        spans_csv (Optional[str]): Project-root-relative POSIX path for
-            the flattened spans CSV. ``None`` disables spans output.
+            output CSV/JSON file.
         extend (bool): When ``True`` the writer appends to existing files
             while replacing rows for the current model.
 
     Methods:
         validate_csv_paths: Enforce the project-root-relative POSIX
-            convention on each of the four CSV path fields.
+            convention on the output path.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -729,8 +689,6 @@ class FlowConfig(BaseModel):
         validate_resources: Ensure resource ids are unique and every
             ``step.llm`` reference resolves.
         validate_steps_non_empty: Ensure at least one step is declared.
-        validate_adjacent_unit_transitions: Enforce the unit-compat
-            matrix on the topologically-sorted step list.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -835,45 +793,6 @@ class FlowConfig(BaseModel):
             raise ValueError("flow.steps must contain at least one step.")
         return self
 
-    @model_validator(mode="after")
-    def validate_adjacent_unit_transitions(self) -> "FlowConfig":
-        """Reject neighbouring steps whose ``unit`` pair is not allowed.
-
-        Walks :attr:`steps` left-to-right and for each neighbouring pair
-        ``(steps[i], steps[i + 1])`` checks that
-        ``(steps[i].unit, steps[i + 1].unit)`` is listed in
-        :data:`VALID_ADJACENT_UNIT_TRANSITIONS`. A single flow may therefore
-        advance through ``row → row``, stay on ``document``, aggregate
-        ``document → entity``, or stay on ``entity``, but must not, for
-        example, drop from ``document`` back to ``row`` or jump ``row``
-        straight to ``entity`` — those combinations have no runner loop.
-
-        Returns:
-            FlowConfig: The same instance, unchanged.
-
-        Raises:
-            ValueError: If any neighbouring step pair violates
-                :data:`VALID_ADJACENT_UNIT_TRANSITIONS`. The message names
-                both offending step indices, their types, and the
-                offending unit pair so the user can find them in the YAML.
-        """
-        for step_index in range(len(self.steps) - 1):
-            previous_step = self.steps[step_index]
-            current_step = self.steps[step_index + 1]
-            unit_transition = (previous_step.unit, current_step.unit)
-            if unit_transition not in VALID_ADJACENT_UNIT_TRANSITIONS:
-                sorted_valid_pairs = sorted(VALID_ADJACENT_UNIT_TRANSITIONS)
-                raise ValueError(
-                    f"Invalid adjacent unit transition between step "
-                    f"{step_index} (type={previous_step.type!r}, "
-                    f"unit={previous_step.unit!r}) and step "
-                    f"{step_index + 1} (type={current_step.type!r}, "
-                    f"unit={current_step.unit!r}): "
-                    f"{previous_step.unit!r}→{current_step.unit!r} "
-                    f"is not allowed. Allowed transitions are "
-                    f"{sorted_valid_pairs}."
-                )
-        return self
 
 
 class NodeEntry(BaseModel):
@@ -1135,39 +1054,16 @@ def _build_data_config_from_node(node: NodeEntry) -> DataConfig:
 
 
 def _build_output_config_from_node(node: NodeEntry) -> OutputConfig:
-    """Build an :class:`OutputConfig` from one ``csv_output`` / ``json_output`` node.
-
-    The legacy :class:`OutputConfig` has separate ``summary_csv`` /
-    ``results_csv`` / ``states_csv`` / ``spans_csv`` slots. The new
-    output node exposes a single ``output_path`` plus an
-    ``artifact_paths`` list. We map ``output_path`` to ``summary_csv``
-    (the only required field) and the artifact list to the optional
-    fields in declared order.
-    """
+    """Build an :class:`OutputConfig` from one ``csv_output`` / ``json_output`` node."""
     config = dict(node.config)
     output_path = config.get("output_path")
     if not isinstance(output_path, str) or not output_path:
         raise ValueError(f"Output node {node.id!r} has no output_path set.")
 
-    artifact_paths = config.get("artifact_paths") or []
-    if not isinstance(artifact_paths, list):
-        raise ValueError(
-            f"Output node {node.id!r} artifact_paths is not a list."
-        )
     extend = bool(config.get("extend"))
-
-    extra_paths: List[Optional[str]] = [None, None, None]
-    for index in range(min(3, len(artifact_paths))):
-        candidate = artifact_paths[index]
-        extra_paths[index] = (
-            str(candidate) if isinstance(candidate, str) and candidate else None
-        )
 
     return OutputConfig(
         summary_csv=output_path,
-        results_csv=extra_paths[0],
-        states_csv=extra_paths[1],
-        spans_csv=extra_paths[2],
         extend=extend,
     )
 
@@ -1190,13 +1086,6 @@ def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepCon
     """Build a :class:`StepConfig` from one ``processor`` node entry."""
     config = dict(node.config)
     step_type = str(config.get("step_type") or "processor")
-    unit = str(config.get("unit") or "row")
-    group_by = config.get("group_by")
-    group_by = (
-        group_by
-        if isinstance(group_by, str) and group_by
-        else None
-    )
     mode = config.get("mode")
     mode = mode if isinstance(mode, str) and mode else None
     keys = config.get("keys")
@@ -1229,8 +1118,7 @@ def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepCon
 
     return StepConfig(
         type=step_type,
-        unit=unit,
-        group_by=group_by,
+        unit="row",
         llm=llm_resource_id,
         mode=mode,
         keys=keys,

@@ -65,12 +65,10 @@ flow:
   # The runner merges the pair into a single sequential loop per entity.
   steps:
     - type: conversation_summary_first
-      unit: document
-      group_by: entity
+      unit: row
 
     - type: conversation_summary_update
-      unit: document
-      group_by: entity
+      unit: row
 
   # ── Async / concurrency ──────────────────────────────────────────
   async:

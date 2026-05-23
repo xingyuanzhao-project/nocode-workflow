@@ -98,3 +98,27 @@ class RunStatusDTO(BaseModel):
     finished_at: Optional[str] = None
     error: Optional[str] = None
     completed_entity_count: int = 0
+    total_row_count: int = 0
+
+
+class RunListItem(BaseModel):
+    """One entry in the ``GET /api/flow/runs`` list response.
+
+    Attributes:
+        run_id (str): The run identifier.
+        status (RunStatus): Current lifecycle position.
+        started_at (Optional[str]): ISO-8601 timestamp when the task
+            started running. ``None`` if still queued.
+        finished_at (Optional[str]): ISO-8601 timestamp when the task
+            finished. ``None`` if not yet terminal.
+        flow_name (Optional[str]): Display name extracted from the
+            run's flow YAML, if available.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    status: RunStatus
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    flow_name: Optional[str] = None

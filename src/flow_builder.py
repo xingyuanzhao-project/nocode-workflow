@@ -455,47 +455,44 @@ class FlowRunner:
         self.resume = resume
 
         self._flow_prompts_path: str = schema.flow.prompts
-        self._column_hints = self._read_column_hints()
+        self._input_columns = self._read_input_columns()
         self._output_fields = self._resolve_output_fields()
         self._output_col = self._output_fields[0]
 
         output_dir = Path(schema.flow.output.summary_csv).parent
         self._checkpoint = _Checkpoint(output_dir, schema.flow.name)
 
-    def _read_column_hints(self) -> Dict[str, Any]:
-        """Read optional column hints from the data input node's raw config.
+    def _read_input_columns(self) -> List[str]:
+        """Read the list of selected input columns from the data input node.
 
-        Returns a plain dict that callers query with ``.get(key, default)``.
+        Supports three formats for backward compatibility:
+        - New: ``input_columns: ["col1", "col2"]`` (plain list of strings)
+        - Legacy object: ``input_columns: [{role: "text", column: "col1"}]``
+        - Legacy flat: ``column_roles: {text: "col1"}``
 
-        Supports two formats:
-
-        *   **New** (``input_columns``): a list of ``{role, column}`` dicts
-            produced by the GUI's column-mapping UI.
-        *   **Legacy** (``column_roles``): a flat ``{role: column}`` dict
-            from older YAML flows.
-
-        New flows without either key fall back to sensible column-name
-        defaults at every call site.
+        Returns an empty list if nothing is configured (caller will default
+        to all DataFrame columns).
         """
         for node in self.schema.document.nodes:
             if node.type in {"csv_input", "json_input"}:
                 input_columns = node.config.get("input_columns", [])
                 if isinstance(input_columns, list):
-                    hints: Dict[str, Any] = {}
+                    result: List[str] = []
                     for entry in input_columns:
-                        if (
+                        if isinstance(entry, str) and entry:
+                            result.append(entry)
+                        elif (
                             isinstance(entry, dict)
-                            and "role" in entry
                             and "column" in entry
                             and entry["column"]
                         ):
-                            hints[entry["role"]] = entry["column"]
-                    if hints:
-                        return hints
+                            result.append(str(entry["column"]))
+                    if result:
+                        return result
                 raw = node.config.get("column_roles", {})
                 if isinstance(raw, dict) and raw:
-                    return {k: v for k, v in raw.items()}
-        return {}
+                    return [str(v) for v in raw.values() if v]
+        return []
 
     def _resolve_output_fields(self) -> List[str]:
         """Read ``output_fields`` from the first output node's config.
@@ -681,8 +678,6 @@ class FlowRunner:
         into the DataFrame's output columns.
         """
         flow = self.schema.flow
-        text_col = str(self._column_hints.get("text", "text"))
-        doc_id_col = str(self._column_hints.get("doc_id", "doc_id"))
         async_config = flow.async_config
 
         resource_id = self._select_resource_id_for_step(step)
@@ -726,21 +721,30 @@ class FlowRunner:
         row_semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
         output_keys = list(io_schema.output.keys())
 
+        selected_columns = self._input_columns
+        if not selected_columns:
+            selected_columns = [
+                c for c in processed_df.columns if c not in output_keys
+            ]
+
         async def _process_row(
-            row_index: int, text: str, doc_id: Any,
+            row_index: int, input_fields: Dict[str, str],
         ) -> Tuple[int, Dict[str, Any]]:
             async with row_semaphore:
-                cleaned = processor.clean_text(text)
-                if not cleaned.strip():
+                cleaned_fields = {
+                    k: processor.clean_text(v) for k, v in input_fields.items()
+                }
+                if all(not v.strip() for v in cleaned_fields.values()):
                     return row_index, {k: "" for k in output_keys}
-                result = await processor.execute(cleaned, doc_id=doc_id)
+                result = await processor.execute(cleaned_fields, row_index=row_index)
                 return row_index, result
 
         tasks = []
         for row in processed_df.itertuples():
-            text = str(getattr(row, text_col, ""))
-            doc_id = getattr(row, doc_id_col, row.Index)
-            tasks.append(_process_row(row.Index, text, doc_id))
+            input_fields = {
+                col: str(getattr(row, col, "")) for col in selected_columns
+            }
+            tasks.append(_process_row(row.Index, input_fields))
 
         use_pb = flow.display.use_progress_bar
         for completed in tqdm_async.as_completed(
@@ -751,6 +755,7 @@ class FlowRunner:
             for key, value in result_dict.items():
                 if key in processed_df.columns or key in output_keys:
                     processed_df.at[row_index, key] = value
+            self._checkpoint.mark_completed(row_index)
 
         return processed_df
 

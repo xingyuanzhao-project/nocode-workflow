@@ -2,8 +2,7 @@
  * Config-tab form for data input nodes (CSV input / JSON input).
  *
  * Lets the user pick from files already uploaded via Menu > Data,
- * rather than uploading inside the flow editor, and configure which
- * columns/fields from the data source map to which processing roles.
+ * then select which columns/fields to pass to the processor.
  */
 
 import { useCallback, useMemo } from "react";
@@ -12,16 +11,15 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchColumnHeaders, listDataFiles } from "@/api/files";
 import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { useGraphStore, type GraphNode } from "@/stores/graph_store";
-import type { InputColumnEntry } from "@/flow_editor/model/nodes/data_source_node";
 
 export interface DataSourceConfigFormProps {
   node: GraphNode;
 }
 
-function read_input_columns(node: GraphNode): InputColumnEntry[] {
+function read_input_columns(node: GraphNode): string[] {
   const raw = node.data.input_columns;
-  if (Array.isArray(raw) && raw.length > 0) return raw as InputColumnEntry[];
-  return [{ role: "text", column: "" }];
+  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
+  return [];
 }
 
 export function DataSourceConfigForm({
@@ -75,30 +73,27 @@ export function DataSourceConfigForm({
   );
 
   const update_columns = useCallback(
-    (next: InputColumnEntry[]) => {
+    (next: string[]) => {
       update_node_data(node.id, { input_columns: next });
       set_dirty(true);
     },
     [node.id, update_node_data, set_dirty],
   );
 
-  const on_column_change = useCallback(
-    (index: number, field: keyof InputColumnEntry, value: string) => {
-      const next = input_columns.map((entry, i) =>
-        i === index ? { ...entry, [field]: value } : entry,
-      );
+  const on_column_value_change = useCallback(
+    (index: number, value: string) => {
+      const next = input_columns.map((col, i) => (i === index ? value : col));
       update_columns(next);
     },
     [input_columns, update_columns],
   );
 
   const on_add_column = useCallback(() => {
-    update_columns([...input_columns, { role: "", column: "" }]);
+    update_columns([...input_columns, ""]);
   }, [input_columns, update_columns]);
 
   const on_remove_column = useCallback(
     (index: number) => {
-      if (input_columns.length <= 1) return;
       update_columns(input_columns.filter((_, i) => i !== index));
     },
     [input_columns, update_columns],
@@ -109,7 +104,6 @@ export function DataSourceConfigForm({
 
   return (
     <div className="flex flex-col gap-4 text-xs">
-      {/* ---- File selection ---- */}
       <label className="flex flex-col gap-1">
         <span className="font-medium">Data file</span>
         {files_query.isLoading ? (
@@ -133,24 +127,11 @@ export function DataSourceConfigForm({
         </span>
       </label>
 
-      {/* ---- Input columns / fields ---- */}
       <div className="flex flex-col gap-2">
         <span className="font-medium">Input Columns</span>
 
-        {input_columns.map((entry, index) => (
+        {input_columns.map((col_name, index) => (
           <div key={index} className="flex items-end gap-1">
-            <label className="flex flex-1 flex-col gap-0.5">
-              {index === 0 && (
-                <span className="text-muted-foreground">Role</span>
-              )}
-              <input
-                type="text"
-                className="rounded-md border bg-background px-2 py-1 text-sm"
-                placeholder="e.g. text"
-                value={entry.role}
-                onChange={(e) => on_column_change(index, "role", e.target.value)}
-              />
-            </label>
             <label className="flex flex-1 flex-col gap-0.5">
               {index === 0 && (
                 <span className="text-muted-foreground">{field_label}</span>
@@ -158,10 +139,8 @@ export function DataSourceConfigForm({
               {is_csv && csv_columns.length > 0 ? (
                 <select
                   className="rounded-md border bg-background px-2 py-1 text-sm"
-                  value={entry.column}
-                  onChange={(e) =>
-                    on_column_change(index, "column", e.target.value)
-                  }
+                  value={col_name}
+                  onChange={(e) => on_column_value_change(index, e.target.value)}
                 >
                   <option value="">Select column...</option>
                   {csv_columns.map((col) => (
@@ -175,23 +154,19 @@ export function DataSourceConfigForm({
                   type="text"
                   className="rounded-md border bg-background px-2 py-1 text-sm"
                   placeholder="e.g. my_text_col"
-                  value={entry.column}
-                  onChange={(e) =>
-                    on_column_change(index, "column", e.target.value)
-                  }
+                  value={col_name}
+                  onChange={(e) => on_column_value_change(index, e.target.value)}
                 />
               )}
             </label>
-            {input_columns.length > 1 && (
-              <button
-                type="button"
-                className="rounded-md border px-1.5 py-1 text-sm text-muted-foreground hover:text-foreground"
-                title="Remove"
-                onClick={() => on_remove_column(index)}
-              >
-                &times;
-              </button>
-            )}
+            <button
+              type="button"
+              className="rounded-md border px-1.5 py-1 text-sm text-muted-foreground hover:text-foreground"
+              title="Remove"
+              onClick={() => on_remove_column(index)}
+            >
+              &times;
+            </button>
           </div>
         ))}
 
@@ -203,7 +178,7 @@ export function DataSourceConfigForm({
           + Add Column
         </button>
         <span className="text-muted-foreground">
-          Map data roles (e.g. text, entity_id) to actual column names.
+          Selected columns will be passed to the processor as input fields.
         </span>
       </div>
     </div>

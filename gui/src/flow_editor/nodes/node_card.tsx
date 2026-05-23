@@ -24,6 +24,8 @@ export interface NodeCardProps {
   selected?: boolean;
   /** Toggle the input (target) handle on the card's left edge. */
   has_input_handle?: boolean;
+  /** Position of the input (target) handle. Defaults to ``Left``. */
+  input_handle_position?: Position;
   /** Toggle the output (source) handle on the card's right edge. */
   has_output_handle?: boolean;
   /**
@@ -51,6 +53,7 @@ export function NodeCard({
   children,
   selected = false,
   has_input_handle = true,
+  input_handle_position = Position.Left,
   has_output_handle = true,
   has_top_handle = false,
   has_bottom_handle = false,
@@ -73,7 +76,7 @@ export function NodeCard({
         <Handle
           type="target"
           id="data-in"
-          position={Position.Left}
+          position={input_handle_position}
           className="!bg-foreground !w-3 !h-3"
         />
       ) : null}

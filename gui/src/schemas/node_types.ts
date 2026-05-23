@@ -16,11 +16,7 @@ export const nodeTypeCategorySchema = z.union([
 ]);
 export type NodeTypeCategory = z.infer<typeof nodeTypeCategorySchema>;
 
-export const unitValueSchema = z.union([
-  z.literal("row"),
-  z.literal("document"),
-  z.literal("entity"),
-]);
+export const unitValueSchema = z.literal("row");
 export type UnitValue = z.infer<typeof unitValueSchema>;
 
 export const nodeTypeEntrySchema = z.object({

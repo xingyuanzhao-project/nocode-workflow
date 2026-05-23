@@ -30,10 +30,9 @@ Invariants enforced by this module
 - A ``run_id`` pins exactly one output directory; the flow YAML on
   disk at :attr:`server.storage.run_paths.RunPaths.flow_yaml_path` is
   immutable after :meth:`submit` returns.
-- The output rewrite in :func:`_rewrite_output_paths` covers every
-  field on :class:`src.flow_loader.OutputConfig` plus
-  :attr:`src.flow_loader.LoggingConfig.file`, so nothing from the
-  original flow YAML writes outside the run directory.
+- The output rewrite in :func:`_rewrite_output_paths` covers
+  ``output_path`` and :attr:`src.flow_loader.LoggingConfig.file`, so
+  nothing from the original flow YAML writes outside the run directory.
 - :meth:`submit` validates the flow before enqueuing; invalid flows
   raise :class:`ValueError` and never create a run directory.
 """
@@ -41,8 +40,11 @@ Invariants enforced by this module
 from __future__ import annotations
 
 import copy
+import json as _json
+import logging
 import uuid
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import yaml
 from celery import Celery
@@ -53,6 +55,7 @@ from server.services.run_registry import RunRegistry
 from server.storage.paths import ServerPaths
 from server.storage.run_paths import RunPaths
 
+_log = logging.getLogger(__name__)
 
 FLOW_TASK_NAME: str = "server.workers.flow_task.execute_flow"
 """Name under which :func:`server.workers.flow_task.execute_flow` is
@@ -61,6 +64,63 @@ the dispatcher stays decoupled from the workers module."""
 
 
 _OUTPUT_NODE_TYPES = frozenset({"csv_output", "json_output"})
+_INPUT_NODE_TYPES = frozenset({"csv_input", "json_input"})
+
+
+def _count_input_rows(flow_definition: Dict[str, Any]) -> int:
+    """Best-effort count of rows the flow will process.
+
+    Walks the node list for a data-source node, reads the referenced
+    file, and counts rows.  Respects ``settings.processing_limit``
+    when present.  Returns ``0`` on any failure so that progress bars
+    degrade gracefully to an indeterminate display.
+    """
+    nodes = flow_definition.get("nodes")
+    if not isinstance(nodes, list):
+        return 0
+
+    file_path: Optional[Path] = None
+    node_type: Optional[str] = None
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        ntype = node.get("type")
+        if ntype not in _INPUT_NODE_TYPES:
+            continue
+        config = node.get("config")
+        if not isinstance(config, dict):
+            continue
+        selected = config.get("selected_file")
+        if isinstance(selected, str) and selected:
+            candidate = Path(selected)
+            if candidate.is_file():
+                file_path = candidate
+                node_type = ntype
+                break
+
+    if file_path is None:
+        return 0
+
+    try:
+        if node_type == "csv_input":
+            with file_path.open("r", encoding="utf-8", errors="replace") as fh:
+                row_count = max(sum(1 for _ in fh) - 1, 0)
+        else:
+            raw = file_path.read_text(encoding="utf-8", errors="replace").strip()
+            if raw.startswith("["):
+                row_count = len(_json.loads(raw))
+            else:
+                row_count = sum(1 for line in raw.splitlines() if line.strip())
+    except (OSError, _json.JSONDecodeError, UnicodeDecodeError):
+        return 0
+
+    settings = flow_definition.get("settings")
+    if isinstance(settings, dict):
+        limit = settings.get("processing_limit")
+        if isinstance(limit, int) and limit > 0:
+            row_count = min(row_count, limit)
+
+    return row_count
 
 
 def _rewrite_output_paths(
@@ -70,17 +130,13 @@ def _rewrite_output_paths(
 
     The flow body is the new graph format. The dispatcher walks
     ``nodes[]`` to find the single output node (``csv_output`` /
-    ``json_output``) and rewrites its ``config.output_path`` plus every
-    entry of ``config.artifact_paths`` so they sit under the run
-    directory. It also rewrites
+    ``json_output``) and rewrites its ``config.output_path`` so it sits
+    under the run directory. It also rewrites
     ``settings.logging.file`` to :attr:`RunPaths.worker_log_path_relative_posix`.
 
     Per-run filenames:
 
     - ``output_path`` → ``<run_dir_relative_posix>/summary.csv``
-    - ``artifact_paths[0]`` → ``<run_dir>/results.csv`` (if present)
-    - ``artifact_paths[1]`` → ``<run_dir>/states.csv`` (if present)
-    - ``artifact_paths[2]`` → ``<run_dir>/spans.csv`` (if present)
     - ``settings.logging.file`` →
       :attr:`RunPaths.worker_log_path_relative_posix`
 
@@ -103,7 +159,6 @@ def _rewrite_output_paths(
     rewritten = copy.deepcopy(flow_definition)
     run_dir = run_paths.run_dir_relative_posix
 
-    artifact_filenames = ["results.csv", "states.csv", "spans.csv"]
     nodes_list = rewritten.get("nodes")
     if isinstance(nodes_list, list):
         for node in nodes_list:
@@ -116,16 +171,6 @@ def _rewrite_output_paths(
                 node_config = {}
                 node["config"] = node_config
             node_config["output_path"] = f"{run_dir}/summary.csv"
-            artifact_paths = node_config.get("artifact_paths")
-            if isinstance(artifact_paths, list):
-                rewritten_artifacts = list(artifact_paths)
-                for index in range(min(len(rewritten_artifacts), 3)):
-                    if rewritten_artifacts[index] is None:
-                        continue
-                    rewritten_artifacts[index] = (
-                        f"{run_dir}/{artifact_filenames[index]}"
-                    )
-                node_config["artifact_paths"] = rewritten_artifacts
 
     settings_block = rewritten.setdefault("settings", {})
     if not isinstance(settings_block, dict):
@@ -182,7 +227,7 @@ class RunDispatcher:
 
         Validates the flow, mints a new ``run_id``, creates the run
         directory, writes the flow YAML with rewritten output paths,
-        registers the run as ``queued``, and enqueues the Celery task.
+        and enqueues a Celery task.
 
         Args:
             flow_definition (Dict[str, Any]): Raw flow body.
@@ -206,7 +251,8 @@ class RunDispatcher:
         with run_paths.flow_yaml_path.open("w", encoding="utf-8") as file_handle:
             yaml.safe_dump(document, file_handle, sort_keys=False)
 
-        self.registry.create(run_id)
+        total_rows = _count_input_rows(flow_definition)
+        self.registry.create(run_id, total_row_count=total_rows)
         self.celery_app.send_task(FLOW_TASK_NAME, args=[run_id])
         return RunStartResponse(run_id=run_id, status=RunStatus.QUEUED)
 
@@ -215,9 +261,7 @@ class RunDispatcher:
 
         Does not rewrite the flow YAML — the file at
         :attr:`RunPaths.flow_yaml_path` is already correct from the
-        original :meth:`submit`. The Celery task body always passes
-        ``resume=True`` to :func:`src.flow_builder.build_flow`, so the
-        checkpoint skips already-completed entities.
+        original :meth:`submit`.
 
         Args:
             run_id (str): Identifier of an existing run.
@@ -236,6 +280,16 @@ class RunDispatcher:
                 f"Run {run_id!r} has no flow YAML at {run_paths.flow_yaml_path}; "
                 "cannot resume."
             )
-        self.registry.create(run_id)
+        total_rows = 0
+        try:
+            with run_paths.flow_yaml_path.open("r", encoding="utf-8") as fh:
+                doc = yaml.safe_load(fh)
+            if isinstance(doc, dict):
+                flow_def = doc.get("flow", {})
+                if isinstance(flow_def, dict):
+                    total_rows = _count_input_rows(flow_def)
+        except (OSError, yaml.YAMLError):
+            pass
+        self.registry.create(run_id, total_row_count=total_rows)
         self.celery_app.send_task(FLOW_TASK_NAME, args=[run_id])
         return RunStartResponse(run_id=run_id, status=RunStatus.QUEUED)

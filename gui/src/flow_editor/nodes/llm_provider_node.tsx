@@ -11,6 +11,7 @@
  */
 
 import type { NodeProps } from "reactflow";
+import { Position } from "reactflow";
 
 import { NodeCard } from "./node_card";
 
@@ -41,6 +42,7 @@ export function LLMProviderNode({
       type_id={data.node_type_id}
       selected={selected}
       has_input_handle={true}
+      input_handle_position={Position.Bottom}
       has_output_handle={false}
     >
       <div className="flex flex-col gap-0.5">

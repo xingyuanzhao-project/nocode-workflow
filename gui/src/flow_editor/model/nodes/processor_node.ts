@@ -8,10 +8,7 @@
  *
  * The processor's configuration carries:
  *
- * - ``unit`` — granularity of the input (``row``, ``document``,
- *   ``entity``); validated by :data:`VALID_ADJACENT_UNIT_TRANSITIONS`.
- * - ``group_by`` — optional grouping column, mainly used for the
- *   ``document`` and ``entity`` units.
+ * - ``unit`` — always ``"row"`` (process each row independently).
  * - ``prompt`` — inline prompt instructions sent as the system prompt.
  * - ``prompts_ref`` — alternative pointer to a shared prompt template.
  * - ``io_schema`` — output field shape the LLM is expected to return.
@@ -19,9 +16,7 @@
 
 import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
 
-export type UnitValue = "row" | "document" | "entity";
-
-const ALLOWED_UNITS: ReadonlySet<UnitValue> = new Set(["row", "document", "entity"]);
+export type UnitValue = "row";
 
 /** Inline prompt block. Mirrors :class:`src.prompt_resolver.PromptInline`. */
 export interface PromptInline {
@@ -44,7 +39,6 @@ export class ProcessorNode extends BaseNode {
   readonly label: string = "Processor";
 
   unit: UnitValue = "row";
-  group_by: string | null = null;
   prompt: PromptInline | null = { instructions: [] };
   prompts_ref: string | null = null;
   prompt_overrides: Record<string, unknown> | null = null;
@@ -62,15 +56,7 @@ export class ProcessorNode extends BaseNode {
   }
 
   apply_config(config: Record<string, unknown>): void {
-    const unit_value = config.unit;
-    this.unit =
-      typeof unit_value === "string" && ALLOWED_UNITS.has(unit_value as UnitValue)
-        ? (unit_value as UnitValue)
-        : "row";
-
-    const group_by = config.group_by;
-    this.group_by =
-      typeof group_by === "string" && group_by.length > 0 ? group_by : null;
+    this.unit = "row";
 
     const prompt = config.prompt;
     if (prompt && typeof prompt === "object") {
@@ -126,7 +112,6 @@ export class ProcessorNode extends BaseNode {
   emit_config(): Record<string, unknown> {
     const out: Record<string, unknown> = {
       unit: this.unit,
-      group_by: this.group_by,
       io_schema: this.io_schema,
     };
     if (this.prompt !== null) {
@@ -174,7 +159,6 @@ export class ProcessorNode extends BaseNode {
       label: this.label,
       category: this.category,
       unit: this.unit,
-      group_by: this.group_by,
       prompt: this.prompt,
       prompts_ref: this.prompts_ref,
       prompt_overrides: this.prompt_overrides,
@@ -183,28 +167,4 @@ export class ProcessorNode extends BaseNode {
       keys: this.keys,
     };
   }
-}
-
-/**
- * Allowed ``(previous_unit, current_unit)`` pairs between adjacent
- * processors. Mirrors :data:`src.flow_loader.VALID_ADJACENT_UNIT_TRANSITIONS`
- * and the existing :data:`@/lib/unit_compatibility.VALID_ADJACENT_UNIT_TRANSITIONS`.
- */
-export const VALID_ADJACENT_UNIT_TRANSITIONS: ReadonlyArray<
-  readonly [UnitValue, UnitValue]
-> = [
-  ["row", "row"],
-  ["document", "document"],
-  ["document", "entity"],
-  ["entity", "entity"],
-] as const;
-
-export function is_valid_unit_transition(
-  previous_unit: UnitValue,
-  current_unit: UnitValue,
-): boolean {
-  return VALID_ADJACENT_UNIT_TRANSITIONS.some(
-    ([from_unit, to_unit]) =>
-      from_unit === previous_unit && to_unit === current_unit,
-  );
 }

@@ -18,7 +18,7 @@ flow:
     - type: single_summary
       unit: row
     - type: label_summary
-      unit: entity
+      unit: row
       mode: hybrid
   output:
     summary_csv: results/fixture/summary.csv

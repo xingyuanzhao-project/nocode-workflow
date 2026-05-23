@@ -16,7 +16,7 @@
 #   category:               one of "data", "processor", "resource".
 #   label:                  short human-readable name.
 #   description:            longer explanation.
-#   default_unit:           one of "row", "document", "entity", or null.
+#   default_unit:           "row" for processors, null for others.
 #   consumes:               named context fields this node reads.
 #   produces:               named context fields this node writes.
 #   llm_backed:             true when the node issues LLM calls.
@@ -28,7 +28,7 @@
 #                           equivalent to the old behavior.
 #   default_prompt_ref:     prompt key in config/prompts.json used when
 #                           the step does not supply an override.
-#   default_group_by:       default FlowConfig.steps[*].group_by.
+#   default_group_by:       deprecated, ignored.
 
 version: 1
 entries:
@@ -47,7 +47,6 @@ entries:
     llm_backed: true
     requires_resources: [llm_provider]
     default_prompt_ref: null
-    default_group_by: null
     default_io_schema:
       output: {}
 
@@ -60,7 +59,7 @@ entries:
     description: Select a CSV file from your uploaded data.
     default_unit: row
     consumes: []
-    produces: [text, entity_id, doc_id, sort_by]
+    produces: []
 
   - id: json_input
     category: data
@@ -68,7 +67,7 @@ entries:
     description: Select a JSON/JSONL file from your uploaded data.
     default_unit: row
     consumes: []
-    produces: [text, entity_id, doc_id, sort_by]
+    produces: []
 
   - id: csv_output
     category: data

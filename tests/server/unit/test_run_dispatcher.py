@@ -71,11 +71,6 @@ class TestRunDispatcherSubmit:
             if node.get("type") in ("csv_output", "json_output"):
                 node["config"] = {
                     "output_path": "wherever/summary.csv",
-                    "artifact_paths": [
-                        "wherever/results.csv",
-                        "wherever/states.csv",
-                        "wherever/spans.csv",
-                    ],
                     "extend": False,
                 }
         response = run_dispatcher.submit(flow_copy)
@@ -88,10 +83,6 @@ class TestRunDispatcherSubmit:
             if node.get("type") in ("csv_output", "json_output"):
                 node_config = node.get("config", {})
                 assert node_config["output_path"] == f"{expected_prefix}summary.csv"
-                artifacts = node_config.get("artifact_paths", [])
-                assert artifacts[0] == f"{expected_prefix}results.csv"
-                assert artifacts[1] == f"{expected_prefix}states.csv"
-                assert artifacts[2] == f"{expected_prefix}spans.csv"
         logging_block = rewritten_flow.get("settings", {}).get("logging", {})
         assert logging_block["file"].endswith(
             f"/{response.run_id}/worker.log"

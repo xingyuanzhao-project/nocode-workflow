@@ -8,10 +8,7 @@ flow:
       config:
         selected_file: data/df_text_by_report.csv
         input_columns:
-          - role: text
-            column: text
-          - role: doc_id
-            column: index
+          - text
 
     - id: proc_1
       type: processor

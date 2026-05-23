@@ -49,6 +49,8 @@ import redis.asyncio as aioredis
 from server.schemas.run import RunStatus
 from server.services.run_registry import RunRegistry
 from server.settings import ServerSettings, app_redis_url
+from server.storage.paths import ServerPaths
+from server.storage.run_paths import RunPaths
 from server.workers.redis_log_handler import build_log_channel_name
 
 
@@ -110,17 +112,20 @@ class LogStreamService:
         async_redis_url: str,
         key_prefix: str,
         registry: RunRegistry,
+        paths: ServerPaths,
     ) -> None:
-        """Store the injected Redis URL, key prefix, and registry.
+        """Store the injected Redis URL, key prefix, registry, and paths.
 
         Args:
             async_redis_url (str): Application-owned Redis URL.
             key_prefix (str): Application key prefix.
             registry (RunRegistry): The run registry service.
+            paths (ServerPaths): On-disk layout for locating worker logs.
         """
         self.async_redis_url = async_redis_url
         self.key_prefix = key_prefix
         self.registry = registry
+        self.paths = paths
 
     async def stream(self, run_id: str) -> AsyncIterator[Dict[str, str]]:
         """Yield SSE events for ``run_id``'s log channel until terminal.
@@ -136,12 +141,29 @@ class LogStreamService:
           before the generator returns, with the terminal status
           string (``succeeded`` / ``failed`` / ``cancelled``).
 
+        When the run has already reached a terminal status before the
+        subscription starts (i.e. the pubsub messages are gone), this
+        method reads the worker log file from disk and yields its lines
+        as log events before emitting the terminal status event.
+
         Args:
             run_id (str): The run identifier whose logs to stream.
 
         Yields:
             Dict[str, str]: SSE event payload.
         """
+        # Fast path: run already finished before we subscribed.
+        terminal_status = self._peek_terminal_status(run_id)
+        if terminal_status is not None:
+            async for event in self._yield_log_from_disk(run_id):
+                yield event
+            yield {
+                "event": _STATUS_EVENT_NAME,
+                "data": terminal_status.value,
+            }
+            return
+
+        # Normal path: subscribe to pubsub and relay live log lines.
         channel_name = build_log_channel_name(self.key_prefix, run_id)
         redis_client = aioredis.from_url(
             self.async_redis_url, decode_responses=True
@@ -152,9 +174,6 @@ class LogStreamService:
             while True:
                 terminal_status = self._peek_terminal_status(run_id)
                 if terminal_status is not None:
-                    # Drain any log records published between the last
-                    # poll and the terminal status before closing so
-                    # the client does not miss the tail of the log.
                     async for drained_event in self._drain_pubsub(pubsub):
                         yield drained_event
                     yield {
@@ -218,6 +237,33 @@ class LogStreamService:
             return status_dto.status
         return None
 
+    async def _yield_log_from_disk(
+        self, run_id: str
+    ) -> AsyncIterator[Dict[str, str]]:
+        """Read the worker log file from disk and yield each line as a log event.
+
+        Used when a run has already completed before the SSE subscription
+        started, so the pubsub messages are no longer available.
+
+        Args:
+            run_id (str): The run identifier.
+
+        Yields:
+            Dict[str, str]: SSE log event for each non-empty line.
+        """
+        run_paths = RunPaths.for_run_id(self.paths, run_id)
+        log_path = run_paths.worker_log_path
+        if not log_path.exists():
+            return
+        try:
+            with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    stripped = line.rstrip("\n")
+                    if stripped:
+                        yield {"event": _LOG_EVENT_NAME, "data": stripped}
+        except OSError:
+            _logger.debug("Failed to read worker log at %s", log_path)
+
     @staticmethod
     async def _drain_pubsub(
         pubsub: aioredis.client.PubSub,
@@ -248,14 +294,15 @@ class LogStreamService:
 
 
 def build_log_stream_service(
-    settings: ServerSettings, registry: RunRegistry
+    settings: ServerSettings, registry: RunRegistry, paths: ServerPaths
 ) -> LogStreamService:
-    """Construct a :class:`LogStreamService` from settings and registry.
+    """Construct a :class:`LogStreamService` from settings, registry, and paths.
 
     Args:
         settings (ServerSettings): Process settings supplying the
             Redis URL, app DB index, and key prefix.
         registry (RunRegistry): The registry the stream polls.
+        paths (ServerPaths): On-disk layout for locating worker logs.
 
     Returns:
         LogStreamService: The ready-to-use service.
@@ -264,6 +311,7 @@ def build_log_stream_service(
         async_redis_url=app_redis_url(settings),
         key_prefix=settings.redis_key_prefix,
         registry=registry,
+        paths=paths,
     )
 
 

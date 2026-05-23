@@ -38,11 +38,10 @@ flow:
 
   steps:
     - type: label_extraction
-      unit: document
-      group_by: entity
+      unit: row
 
     - type: label_summary
-      unit: entity
+      unit: row
       mode: full_async
 
   async:

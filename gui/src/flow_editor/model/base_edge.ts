@@ -100,6 +100,9 @@ export abstract class BaseEdge {
   /** Whether the React Flow rendering should show a closed arrow head. */
   abstract readonly has_arrow: boolean;
 
+  /** Whether to also show an arrow at the source end (bidirectional). */
+  readonly has_start_arrow: boolean = false;
+
   protected constructor(
     edge_type_literal: string,
     source_node_id: string,
@@ -201,6 +204,7 @@ export abstract class BaseEdge {
       targetHandle: this.target_handle ?? undefined,
       type: "unit_aware",
       data: { edge_type: this.edge_type },
+      markerStart: this.has_start_arrow ? { type: MarkerType.ArrowClosed } : undefined,
       markerEnd: this.has_arrow ? { type: MarkerType.ArrowClosed } : undefined,
     };
   }

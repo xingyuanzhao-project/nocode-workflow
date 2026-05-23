@@ -77,9 +77,6 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
   const output_fields = Array.isArray(node.data.output_fields)
     ? (node.data.output_fields as string[]).filter(Boolean)
     : ["summary"];
-  const artifact_paths = Array.isArray(node.data.artifact_paths)
-    ? (node.data.artifact_paths as string[])
-    : [];
   const extend = node.data.extend === true;
 
   const on_output_path_change = useCallback(
@@ -123,32 +120,6 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
       set_dirty(true);
     },
     [node.id, output_fields, update_node_data, set_dirty],
-  );
-
-  const on_add_artifact = useCallback(() => {
-    update_node_data(node.id, {
-      artifact_paths: [...artifact_paths, "results/artifact.csv"],
-    });
-    set_dirty(true);
-  }, [node.id, artifact_paths, update_node_data, set_dirty]);
-
-  const on_remove_artifact = useCallback(
-    (index: number) => {
-      update_node_data(node.id, {
-        artifact_paths: artifact_paths.filter((_, i) => i !== index),
-      });
-      set_dirty(true);
-    },
-    [node.id, artifact_paths, update_node_data, set_dirty],
-  );
-
-  const on_artifact_change = useCallback(
-    (index: number, value: string) => {
-      const next = artifact_paths.map((p, i) => (i === index ? value : p));
-      update_node_data(node.id, { artifact_paths: next });
-      set_dirty(true);
-    },
-    [node.id, artifact_paths, update_node_data, set_dirty],
   );
 
   return (
@@ -196,34 +167,6 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
         <span className="text-muted-foreground">
           Field names become column headers in the output CSV.
         </span>
-      </div>
-      <div className="flex flex-col gap-1">
-        <span className="font-medium">Artifact paths (optional)</span>
-        {artifact_paths.map((path, index) => (
-          <div key={index} className="flex items-center gap-1">
-            <input
-              className="flex-1 rounded-md border bg-background px-2 py-1 text-sm"
-              value={path}
-              onChange={(event) =>
-                on_artifact_change(index, event.target.value)
-              }
-            />
-            <button
-              type="button"
-              className="text-destructive hover:underline"
-              onClick={() => on_remove_artifact(index)}
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="mt-1 w-fit rounded-md border bg-secondary px-2 py-1 text-secondary-foreground hover:bg-accent"
-          onClick={on_add_artifact}
-        >
-          + Add artifact path
-        </button>
       </div>
       <label className="flex items-center gap-2">
         <input

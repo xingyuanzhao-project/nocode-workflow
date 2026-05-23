@@ -19,6 +19,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 BACKEND_PORT = 8000
 FRONTEND_PORT = 5173
+REDIS_PORT = 6379
 
 
 def _venv_python() -> Path:
@@ -29,6 +30,10 @@ def _venv_python() -> Path:
 
 def _vite_js() -> Path:
     return REPO_ROOT / "gui" / "node_modules" / "vite" / "bin" / "vite.js"
+
+
+def _redis_server_exe() -> Path:
+    return REPO_ROOT / "tools" / "redis" / "redis-server.exe"
 
 
 def _preflight() -> tuple[str, Path, str]:
@@ -51,6 +56,14 @@ def _preflight() -> tuple[str, Path, str]:
     node = shutil.which("node")
     if node is None:
         errors.append("node not found on PATH")
+
+    redis_exe = _redis_server_exe()
+    if not redis_exe.exists():
+        errors.append(
+            f"redis-server not found at {redis_exe}\n"
+            "  Download from https://github.com/tporadowski/redis/releases\n"
+            "  and extract to tools/redis/"
+        )
 
     if errors:
         sys.exit("ERROR:\n" + "\n".join(errors))
@@ -96,11 +109,44 @@ def main() -> None:
     venv_py, vite_js, node = _preflight()
 
     print("Checking for existing processes on ports ...", flush=True)
+    _kill_port(REDIS_PORT)
     _kill_port(BACKEND_PORT)
     _kill_port(FRONTEND_PORT)
     time.sleep(0.5)
 
     procs: list[subprocess.Popen] = []
+
+    print("Starting Redis    (redis   :6379) ...", flush=True)
+    redis_proc = subprocess.Popen(
+        [
+            str(_redis_server_exe()),
+            "--port", str(REDIS_PORT),
+            "--save", "",
+            "--appendonly", "no",
+        ],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    procs.append(redis_proc)
+
+    if not _wait_for_port(REDIS_PORT, timeout=10.0):
+        sys.exit("ERROR: Redis did not start within 10 s.")
+    print("  Redis is ready.", flush=True)
+
+    print("Starting Celery   (worker  :solo) ...", flush=True)
+    celery_proc = subprocess.Popen(
+        [
+            venv_py, "-m", "celery",
+            "-A", "server.celery_app",
+            "worker",
+            "--pool=solo",
+            "--concurrency=1",
+            "--loglevel=INFO",
+        ],
+        cwd=str(REPO_ROOT),
+    )
+    procs.append(celery_proc)
 
     print("Starting backend  (uvicorn :8000) ...", flush=True)
     backend = subprocess.Popen(
@@ -131,6 +177,7 @@ def main() -> None:
     print(flush=True)
     print(f"  App running at  http://127.0.0.1:{FRONTEND_PORT}/", flush=True)
     print(f"  API running at  http://127.0.0.1:{BACKEND_PORT}/", flush=True)
+    print(f"  Redis running at         :{REDIS_PORT}", flush=True)
     print("  Press Ctrl+C to stop.", flush=True)
     print(flush=True)
 
