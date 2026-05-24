@@ -6,7 +6,6 @@
  * :mod:`./TaxonomyEditorPage`.
  */
 
-import { useState } from "react";
 import {
   useMutation,
   useQuery,
@@ -28,7 +27,6 @@ const TAXONOMY_LIST_QUERY_KEY = ["taxonomy-list"] as const;
 export default function TaxonomyListPage(): JSX.Element {
   const navigate = useNavigate();
   const query_client = useQueryClient();
-  const [new_taxonomy_name, set_new_taxonomy_name] = useState("");
 
   const list_query = useQuery({
     queryKey: TAXONOMY_LIST_QUERY_KEY,
@@ -37,11 +35,10 @@ export default function TaxonomyListPage(): JSX.Element {
   });
 
   const create_mutation = useMutation({
-    mutationFn: (name: string) => createTaxonomy(name, {}),
+    mutationFn: () => createTaxonomy("Unnamed Codebook", {}),
     onSuccess: (response) => {
       query_client.invalidateQueries({ queryKey: TAXONOMY_LIST_QUERY_KEY });
-      set_new_taxonomy_name("");
-            navigate(`/codebook/${encodeURIComponent(response.id)}`);
+      navigate(`/codebook/${encodeURIComponent(response.id)}`);
     },
   });
 
@@ -56,22 +53,12 @@ export default function TaxonomyListPage(): JSX.Element {
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b px-6 py-3">
         <h1 className="text-lg font-semibold">Codebook</h1>
-        <div className="flex items-center gap-2">
-          <input
-            className="rounded-md border bg-background px-2 py-1 text-sm"
-            placeholder="New codebook name"
-            value={new_taxonomy_name}
-            onChange={(event) => set_new_taxonomy_name(event.target.value)}
-          />
-          <Button
-            disabled={
-              !new_taxonomy_name.trim() || create_mutation.isPending
-            }
-            onClick={() => create_mutation.mutate(new_taxonomy_name.trim())}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Create
-          </Button>
-        </div>
+        <Button
+          disabled={create_mutation.isPending}
+          onClick={() => create_mutation.mutate()}
+        >
+          <Plus className="mr-1 h-4 w-4" /> Create
+        </Button>
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">

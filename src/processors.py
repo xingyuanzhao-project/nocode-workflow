@@ -101,7 +101,8 @@ class GenericProcessor:
 
         self.logger.info(
             "[LLM INPUT] model=%s row=%d messages=%s",
-            self.model_name, row_index, json.dumps(messages, ensure_ascii=False),
+            self.model_name, row_index,
+            json.dumps(kwargs["messages"], ensure_ascii=False),
         )
 
         try:
@@ -112,10 +113,11 @@ class GenericProcessor:
                 response = await self.client.chat.completions.create(**kwargs)
 
             raw_content = response.choices[0].message.content or ""
+            finish_reason = response.choices[0].finish_reason or "unknown"
 
             self.logger.info(
-                "[LLM OUTPUT] model=%s row=%d content=%s",
-                self.model_name, row_index, raw_content,
+                "[LLM OUTPUT] model=%s row=%d finish_reason=%s content=%s",
+                self.model_name, row_index, finish_reason, raw_content,
             )
 
             result, success = normalize_llm_response(raw_content, self._output_keys)

@@ -55,7 +55,7 @@ Invariants enforced by this module
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,12 +72,17 @@ class IOSchema(BaseModel):
             example ``{"type": "string"}`` or
             ``{"type": "array", "items": {...}}``). :func:`to_response_format`
             copies this dict verbatim into the generated JSON Schema.
+        required_output (List[str]): Subset of output field names that
+            must appear in every LLM response. When non-empty,
+            :func:`to_response_format` uses this list as the JSON Schema
+            ``required`` array instead of defaulting to all output keys.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     input: Dict[str, Any] = Field(default_factory=dict)
     output: Dict[str, Any] = Field(default_factory=dict)
+    required_output: List[str] = Field(default_factory=list)
 
 
 def to_response_format(
@@ -297,6 +302,11 @@ def to_response_format(
         >>> to_response_format(label_synthesis_schema, "label_synthesis") == expected_lsn
         True
     """
+    required = (
+        io_schema.required_output
+        if io_schema.required_output
+        else list(io_schema.output.keys())
+    )
     return {
         "type": "json_schema",
         "json_schema": {
@@ -304,7 +314,7 @@ def to_response_format(
             "schema": {
                 "type": "object",
                 "properties": dict(io_schema.output),
-                "required": list(io_schema.output.keys()),
+                "required": required,
             },
         },
     }

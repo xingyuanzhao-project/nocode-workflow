@@ -87,6 +87,8 @@ export interface GraphState {
     node_id: string,
     data_patch: Record<string, unknown>,
   ) => void;
+  /** Remove one node and any incident edges. */
+  delete_node: (node_id: string) => void;
 
   /** Look up a typed node by id. */
   get_typed_node: (node_id: string) => BaseNode | null;
@@ -362,6 +364,28 @@ export const useGraphStore: UseBoundStore<StoreApi<GraphState>> & {
           return {
             typed_nodes: next_typed_nodes,
             nodes: project_react_flow_nodes(next_typed_nodes),
+          };
+        }),
+
+      delete_node: (node_id) =>
+        set((state) => {
+          const next_typed_nodes = state.typed_nodes.filter(
+            (candidate) => candidate.id !== node_id,
+          );
+          if (next_typed_nodes.length === state.typed_nodes.length) {
+            return {};
+          }
+          const next_typed_edges = state.typed_edges.filter(
+            (edge) =>
+              edge.source_node_id !== node_id && edge.target_node_id !== node_id,
+          );
+          return {
+            typed_nodes: next_typed_nodes,
+            typed_edges: next_typed_edges,
+            nodes: project_react_flow_nodes(next_typed_nodes),
+            edges: project_react_flow_edges(next_typed_edges),
+            selected_node_id:
+              state.selected_node_id === node_id ? null : state.selected_node_id,
           };
         }),
 

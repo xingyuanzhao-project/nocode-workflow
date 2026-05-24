@@ -165,6 +165,11 @@ def main() -> None:
     )
     procs.append(frontend)
 
+    print("Waiting for backend to be ready ...", flush=True)
+    if not _wait_for_port(BACKEND_PORT, timeout=30.0):
+        print("Backend did not respond in 30 s — check the output above.",
+              flush=True)
+
     print("Waiting for frontend to be ready ...", flush=True)
     if _wait_for_port(FRONTEND_PORT):
         url = f"http://127.0.0.1:{FRONTEND_PORT}/"

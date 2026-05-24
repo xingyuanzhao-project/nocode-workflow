@@ -1,11 +1,9 @@
 # Render Blueprint for the academic_pipeline backend + GUI.
 #
-# Four services:
+# Three services:
 #
-# - academic-pipeline-api            (web, Docker)     — FastAPI app serving
-#                                                        /api/* plus /openapi.json.
-# - academic-pipeline-celery-worker  (worker, Docker)  — Celery worker pulling
-#                                                        from the same Redis.
+# - academic-pipeline-api            (web, Docker)     — FastAPI app + Celery
+#                                                        worker via supervisord.
 # - academic-pipeline-redis          (redis)            — broker, result backend,
 #                                                        app-state DBs (logical
 #                                                        DBs 0/1/2 on one
@@ -13,6 +11,8 @@
 # - academic-pipeline-gui            (static site)      — the Vite/React SPA
 #                                                        built from gui/.
 #
+# Free-tier deployment. The web service uses an ephemeral filesystem
+# (no persistent disk). Files are lost on spin-down or redeploy.
 # NOT YET DEPLOYED. This file is committed so the deploy step is a
 # single `render deploy` away; do not run deploy without first
 # re-verifying the values of `sync: false` env vars in Render's UI.
@@ -22,9 +22,9 @@ services:
     name: academic-pipeline-api
     runtime: docker
     region: oregon
-    plan: starter
+    plan: free
     dockerfilePath: server/Dockerfile
-    dockerCommand: uvicorn server.app:create_app --factory --host 0.0.0.0 --port 8000
+    dockerCommand: supervisord -c /app/server/supervisord.conf
     healthCheckPath: /api/health
     envVars:
       # OpenRouter credentials used by the flow_builder's .env loader.
@@ -39,32 +39,10 @@ services:
           name: academic-pipeline-redis
           type: redis
           property: connectionString
-      # Persistent data directory (bind-mounted in Docker to the
-      # `academic-pipeline-data` disk declared below). Uses the same
-      # project-root-relative POSIX convention as the local
-      # docker-compose stack.
-      - key: ACADEMIC_PIPELINE_DATA_DIR
-        value: /app/server/data
       # CORS allowlist: the GUI origin. Set in the Render UI so the
       # deploy script never overrides it.
       - key: ACADEMIC_PIPELINE_CORS_ORIGINS
         sync: false
-    disk:
-      name: academic-pipeline-data
-      mountPath: /app/server/data
-      sizeGB: 1
-
-  - type: worker
-    name: academic-pipeline-celery-worker
-    runtime: docker
-    region: oregon
-    plan: starter
-    dockerfilePath: server/Dockerfile
-    dockerCommand: celery -A server.celery_app worker --loglevel=info --pool=solo --concurrency=1
-    envVars:
-      # The worker needs the same API key, Redis URL, and data dir
-      # as the web service. An env group keeps them in sync.
-      - fromGroup: academic-pipeline-shared-env
 
   - type: redis
     name: academic-pipeline-redis
@@ -90,14 +68,3 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-
-# Shared env group referenced by the worker above.
-envVarGroups:
-  - name: academic-pipeline-shared-env
-    envVars:
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: ACADEMIC_PIPELINE_REDIS_URL
-        sync: false
-      - key: ACADEMIC_PIPELINE_DATA_DIR
-        value: /app/server/data

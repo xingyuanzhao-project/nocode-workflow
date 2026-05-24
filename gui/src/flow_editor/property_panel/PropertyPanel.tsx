@@ -16,7 +16,10 @@
  */
 
 import { useMemo } from "react";
+import { Trash2 } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGraphStore, type GraphNode } from "@/stores/graph_store";
 
@@ -41,6 +44,8 @@ export function PropertyPanel(): JSX.Element {
     (state) => state.selected_node_id,
   );
   const nodes = useGraphStore((state) => state.nodes);
+  const delete_node = useGraphStore((state) => state.delete_node);
+  const set_dirty = useFlowMetadataStore((state) => state.set_dirty);
 
   const selected_node = useMemo(
     () => readNodeById(nodes, selected_node_id),
@@ -59,25 +64,47 @@ export function PropertyPanel(): JSX.Element {
   const category = String(selected_node.data.category ?? "");
   const label = String(selected_node.data.label ?? node_type_id);
   const is_processor_node = category === PROCESSOR_CATEGORY;
+  const on_delete = () => {
+    if (
+      window.confirm(`Delete ${label}? This will remove its connected wires too.`)
+    ) {
+      delete_node(selected_node.id);
+      set_dirty(true);
+    }
+  };
 
   return (
     <aside className="flex h-full w-96 shrink-0 flex-col border-l bg-background">
       <div className="border-b px-4 py-3">
-        {is_processor_node ? (
-          <>
-            <h2 className="text-sm font-semibold">{label}</h2>
-            <div className="text-xs text-muted-foreground">
-              Configure output schema and prompt instructions.
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="text-[0.65rem] font-mono uppercase tracking-wide text-muted-foreground">
-              {category || "Node"}
-            </div>
-            <h2 className="text-sm font-semibold">{label}</h2>
-          </>
-        )}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {is_processor_node ? (
+              <>
+                <h2 className="text-sm font-semibold">{label}</h2>
+                <div className="text-xs text-muted-foreground">
+                  Configure output schema and prompt instructions.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[0.65rem] font-mono uppercase tracking-wide text-muted-foreground">
+                  {category || "Node"}
+                </div>
+                <h2 className="text-sm font-semibold">{label}</h2>
+              </>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="shrink-0"
+            onClick={on_delete}
+          >
+            <Trash2 className="mr-1 h-4 w-4" />
+            Delete
+          </Button>
+        </div>
       </div>
       {is_processor_node ? (
         <Tabs defaultValue="config" className="flex flex-1 flex-col">

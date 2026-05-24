@@ -20,6 +20,7 @@ export class CodebookNode extends BaseNode {
 
   codebook_id: string | null = null;
   codebook_path: string | null = null;
+  selected_keys: string[] | null = null;
 
   constructor(
     id: string,
@@ -40,12 +41,16 @@ export class CodebookNode extends BaseNode {
       config.codebook_path.length > 0
         ? config.codebook_path
         : null;
+    this.selected_keys = Array.isArray(config.selected_keys)
+      ? config.selected_keys.map((k) => String(k))
+      : null;
   }
 
   emit_config(): Record<string, unknown> {
     return {
       codebook_id: this.codebook_id,
       codebook_path: this.codebook_path,
+      selected_keys: this.selected_keys,
     };
   }
 
@@ -66,6 +71,7 @@ export class CodebookNode extends BaseNode {
       category: this.category,
       codebook_id: this.codebook_id,
       codebook_path: this.codebook_path,
+      selected_keys: this.selected_keys,
       taxonomy_id: this.codebook_id,
       taxonomy_path: this.codebook_path ?? "",
     };

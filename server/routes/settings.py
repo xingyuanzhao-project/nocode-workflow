@@ -1,9 +1,10 @@
 """Routes under ``/api/settings`` — runtime API-key and endpoint management.
 
-Cloud API keys are stored in ``os.environ`` for the current server
-process only and are NOT persisted to disk. Local endpoint URLs are
-stored in a module-level dict that survives for the process lifetime
-but not across restarts.
+Cloud API keys are persisted to the project-root ``.env`` file so that
+both the FastAPI server process and the Celery worker process can read
+them. The keys are also set in ``os.environ`` for immediate use by the
+server process. Local endpoint URLs are stored in a module-level dict
+that survives for the process lifetime but not across restarts.
 
 Contents and relationships
 --------------------------
@@ -21,6 +22,7 @@ How the rest of the system uses this module
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Dict, List
 
 import httpx
@@ -105,13 +107,49 @@ def list_providers() -> ProviderStatusResponse:
     )
 
 
+_PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+"""Project root directory (grandparent of server/routes/)."""
+
+
+def _persist_env_var_to_dotenv(var_name: str, var_value: str) -> None:
+    """Write or update a variable in the project-root ``.env`` file.
+
+    If the variable already exists in the file, its value is replaced
+    in-place. Otherwise a new line is appended. This ensures the Celery
+    worker (which reads ``.env`` at task start via
+    :func:`src.flow_builder._load_dotenv_into_environ`) sees the key.
+    """
+    env_path = _PROJECT_ROOT / ".env"
+    lines: list[str] = []
+    found = False
+    if env_path.exists():
+        with env_path.open("r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                stripped = raw_line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    key_part = stripped.partition("=")[0].strip()
+                    if key_part == var_name:
+                        lines.append(f"{var_name}={var_value}\n")
+                        found = True
+                        continue
+                lines.append(raw_line if raw_line.endswith("\n") else raw_line + "\n")
+    if not found:
+        lines.append(f"{var_name}={var_value}\n")
+    with env_path.open("w", encoding="utf-8") as fh:
+        fh.writelines(lines)
+
+
 @router.post(
     "/api-key",
     response_model=ProviderStatusResponse,
     status_code=status.HTTP_200_OK,
 )
 def set_api_key(request: ApiKeySetRequest) -> ProviderStatusResponse:
-    """Store a cloud API key in ``os.environ`` for the current session.
+    """Store a cloud API key in ``os.environ`` and persist to ``.env``.
+
+    The key is written to the project-root ``.env`` file so the Celery
+    worker can read it at task start. It is also set in ``os.environ``
+    for immediate use by the server process.
 
     Args:
         request (ApiKeySetRequest): Provider and key to store.
@@ -121,6 +159,7 @@ def set_api_key(request: ApiKeySetRequest) -> ProviderStatusResponse:
     """
     env_var_name = PROVIDER_ENV_VARS[request.provider]
     os.environ[env_var_name] = request.api_key
+    _persist_env_var_to_dotenv(env_var_name, request.api_key)
     return list_providers()
 
 

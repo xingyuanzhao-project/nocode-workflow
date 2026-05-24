@@ -106,6 +106,7 @@ export default function TaxonomyEditorPage(): JSX.Element {
       <header className="flex items-center gap-2 border-b px-6 py-3">
         <input
           className="rounded-md border bg-background px-2 py-1 text-sm font-medium min-w-[20rem]"
+          placeholder="Unnamed Codebook"
           value={taxonomy_name}
           onChange={(event) => {
             set_taxonomy_name(event.target.value);

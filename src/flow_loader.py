@@ -437,6 +437,7 @@ class StepConfig(BaseModel):
     prompts_ref: Optional[str] = None
     prompt: Optional[PromptInline] = None
     prompt_overrides: Optional[PromptOverride] = None
+    has_codebook: bool = False
 
     @field_validator("type")
     @classmethod
@@ -699,6 +700,7 @@ class FlowConfig(BaseModel):
     resources: List[LLMResource]
     data: DataConfig
     taxonomy: str = ""
+    taxonomy_selected_keys: Optional[List[str]] = None
     prompts: str = "config/prompts.json"
     steps: List[StepConfig]
     processing_limit: Optional[int] = None
@@ -1093,7 +1095,19 @@ def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepCon
     io_schema_raw = config.get("io_schema")
     io_schema_obj = None
     if isinstance(io_schema_raw, dict) and io_schema_raw:
-        io_schema_obj = IOSchema.model_validate(io_schema_raw)
+        normalized = dict(io_schema_raw)
+        raw_output = normalized.get("output")
+        if isinstance(raw_output, dict):
+            canonical_output = {}
+            for field_name, field_spec in raw_output.items():
+                if isinstance(field_spec, str):
+                    canonical_output[field_name] = {"type": field_spec}
+                elif isinstance(field_spec, dict):
+                    canonical_output[field_name] = field_spec
+                else:
+                    canonical_output[field_name] = {"type": "string"}
+            normalized["output"] = canonical_output
+        io_schema_obj = IOSchema.model_validate(normalized)
 
     prompt_raw = config.get("prompt")
     prompt_obj = (
@@ -1148,6 +1162,7 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
     resources_by_id: Dict[str, LLMResource] = {}
     steps: List[StepConfig] = []
     taxonomy_path: Optional[str] = None
+    taxonomy_selected_keys: Optional[List[str]] = None
     seen_codebook_node_id: Optional[str] = None
 
     for processor_id in processor_order:
@@ -1174,6 +1189,7 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         codebook_node = _resolve_codebook_for_processor(
             processor_id, document, node_index
         )
+        processor_has_codebook = False
         if codebook_node is not None:
             if (
                 seen_codebook_node_id is not None
@@ -1185,8 +1201,14 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
                 )
             seen_codebook_node_id = codebook_node.id
             taxonomy_path = _build_taxonomy_path(codebook_node)
+            raw_keys = codebook_node.config.get("selected_keys")
+            if isinstance(raw_keys, list) and raw_keys:
+                taxonomy_selected_keys = [str(k) for k in raw_keys]
+            processor_has_codebook = True
 
-        steps.append(_build_step_from_processor(processor_node, llm_resource.id))
+        step = _build_step_from_processor(processor_node, llm_resource.id)
+        step.has_codebook = processor_has_codebook
+        steps.append(step)
 
     if taxonomy_path is None:
         taxonomy_path = ""
@@ -1198,6 +1220,7 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         resources=list(resources_by_id.values()),
         data=_build_data_config_from_node(data_node),
         taxonomy=taxonomy_path,
+        taxonomy_selected_keys=taxonomy_selected_keys,
         prompts=document.settings.prompts,
         steps=steps,
         processing_limit=document.settings.processing_limit,

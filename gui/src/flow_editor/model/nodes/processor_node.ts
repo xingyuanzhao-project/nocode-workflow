@@ -85,10 +85,20 @@ export class ProcessorNode extends BaseNode {
     const io_schema = config.io_schema;
     if (io_schema && typeof io_schema === "object") {
       const incoming = io_schema as Record<string, unknown>;
-      const output_block =
+      const raw_output =
         incoming.output && typeof incoming.output === "object"
           ? (incoming.output as Record<string, unknown>)
           : {};
+      const output_block: Record<string, { type: string }> = {};
+      for (const [key, value] of Object.entries(raw_output)) {
+        if (value && typeof value === "object" && "type" in (value as Record<string, unknown>)) {
+          output_block[key] = { type: String((value as Record<string, unknown>).type) };
+        } else if (typeof value === "string") {
+          output_block[key] = { type: value };
+        } else {
+          output_block[key] = { type: "string" };
+        }
+      }
       const input_block =
         incoming.input && typeof incoming.input === "object"
           ? (incoming.input as Record<string, unknown>)

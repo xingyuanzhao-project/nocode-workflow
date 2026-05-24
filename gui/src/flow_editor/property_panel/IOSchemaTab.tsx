@@ -149,7 +149,7 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
         </thead>
         <tbody className="align-top">
           {rows.map((row, row_index) => (
-            <tr key={`${row.field_name}_${row_index}`}>
+            <tr key={row_index}>
               <td className="pr-1 py-0.5">
                 <input
                   className="w-full rounded-md border bg-background px-1.5 py-0.5 font-mono"

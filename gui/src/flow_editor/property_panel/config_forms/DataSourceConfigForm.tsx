@@ -18,7 +18,7 @@ export interface DataSourceConfigFormProps {
 
 function read_input_columns(node: GraphNode): string[] {
   const raw = node.data.input_columns;
-  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === "string" && x.length > 0);
+  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === "string");
   return [];
 }
 

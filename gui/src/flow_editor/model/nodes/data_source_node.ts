@@ -14,7 +14,7 @@ function parse_input_columns(raw: unknown): string[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const result: string[] = [];
   for (const item of raw) {
-    if (typeof item === "string" && item.length > 0) {
+    if (typeof item === "string") {
       result.push(item);
     } else if (
       typeof item === "object" &&
@@ -60,7 +60,7 @@ export class DataSourceNode extends BaseNode {
   emit_config(): Record<string, unknown> {
     return {
       selected_file: this.selected_file,
-      input_columns: this.input_columns,
+      input_columns: this.input_columns.filter(c => c.length > 0),
     };
   }
 

@@ -17,7 +17,7 @@ export class OutputNode extends BaseNode {
 
   output_path: string = "results/output.csv";
   extend: boolean = false;
-  output_fields: string[] = ["summary"];
+  output_fields: string[] = [];
 
   constructor(
     id: string,
@@ -38,21 +38,25 @@ export class OutputNode extends BaseNode {
         : "results/output.csv";
     this.extend = config.extend === true;
     this.output_fields = Array.isArray(config.output_fields)
-      ? config.output_fields.map(String).filter(Boolean)
-      : ["summary"];
+      ? config.output_fields.map(String)
+      : [];
   }
 
   emit_config(): Record<string, unknown> {
     return {
       output_path: this.output_path,
       extend: this.extend,
-      output_fields: [...this.output_fields],
+      output_fields: this.output_fields.filter(f => f.trim().length > 0),
     };
   }
 
   validate(): string | null {
     if (!this.output_path || this.output_path.trim().length === 0) {
       return `${this.label} has no output path set.`;
+    }
+    const filled = this.output_fields.filter(f => f.trim().length > 0);
+    if (filled.length === 0) {
+      return `${this.label} has no output fields defined.`;
     }
     return null;
   }

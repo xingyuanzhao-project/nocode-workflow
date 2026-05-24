@@ -6,10 +6,10 @@
  * store via :mod:`./node_update_helpers`.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { listTaxonomies } from "@/api/taxonomies";
+import { getTaxonomy, listTaxonomies } from "@/api/taxonomies";
 import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { useGraphStore, type GraphNode } from "@/stores/graph_store";
 import { DataSourceConfigForm } from "./config_forms/DataSourceConfigForm";
@@ -28,15 +28,55 @@ function CodebookSelectorForm({ node }: { node: GraphNode }): JSX.Element {
   const selected_id =
     typeof node.data.codebook_id === "string" ? node.data.codebook_id : "";
 
+  const codebook_body_query = useQuery({
+    queryKey: ["taxonomy", selected_id],
+    queryFn: () => getTaxonomy(selected_id),
+    enabled: Boolean(selected_id),
+    staleTime: 60_000,
+  });
+
+  const selected_keys: string[] = Array.isArray(node.data.selected_keys)
+    ? (node.data.selected_keys as string[])
+    : [];
+
+  const available_keys = useMemo(() => {
+    if (!codebook_body_query.data?.taxonomy) return [];
+    return Object.keys(codebook_body_query.data.taxonomy).filter(
+      (k) => !k.startsWith("_"),
+    );
+  }, [codebook_body_query.data]);
+
+  useEffect(() => {
+    if (
+      selected_id &&
+      available_keys.length > 0 &&
+      node.data.selected_keys == null
+    ) {
+      update_node_data(node.id, { selected_keys: available_keys });
+    }
+  }, [selected_id, available_keys, node.data.selected_keys, node.id, update_node_data]);
+
   const on_change = useCallback(
     (next_id: string) => {
       update_node_data(node.id, {
         codebook_id: next_id || null,
         codebook_path: null,
+        selected_keys: null,
       });
       set_dirty(true);
     },
     [node.id, update_node_data, set_dirty],
+  );
+
+  const toggle_key = useCallback(
+    (key: string) => {
+      const next = selected_keys.includes(key)
+        ? selected_keys.filter((k) => k !== key)
+        : [...selected_keys, key];
+      update_node_data(node.id, { selected_keys: next });
+      set_dirty(true);
+    },
+    [selected_keys, node.id, update_node_data, set_dirty],
   );
 
   const items = useMemo(
@@ -64,6 +104,30 @@ function CodebookSelectorForm({ node }: { node: GraphNode }): JSX.Element {
           Choose from your saved codebooks (Menu &rarr; Codebook).
         </span>
       </label>
+
+      {selected_id && available_keys.length > 0 && (
+        <div className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">
+            Fields to include in prompt
+          </span>
+          {available_keys.map((key) => (
+            <label key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selected_keys.includes(key)}
+                onChange={() => toggle_key(key)}
+              />
+              <span className="font-mono text-sm">{key}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {selected_id && codebook_body_query.isLoading && (
+        <span className="text-xs text-muted-foreground">
+          Loading codebook fields…
+        </span>
+      )}
     </div>
   );
 }
@@ -74,9 +138,9 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
 
   const output_path =
     typeof node.data.output_path === "string" ? node.data.output_path : "";
-  const output_fields = Array.isArray(node.data.output_fields)
-    ? (node.data.output_fields as string[]).filter(Boolean)
-    : ["summary"];
+  const output_fields: string[] = Array.isArray(node.data.output_fields)
+    ? (node.data.output_fields as string[])
+    : [];
   const extend = node.data.extend === true;
 
   const on_output_path_change = useCallback(
@@ -104,7 +168,6 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
 
   const on_remove_output_field = useCallback(
     (index: number) => {
-      if (output_fields.length <= 1) return;
       update_node_data(node.id, {
         output_fields: output_fields.filter((_, i) => i !== index),
       });
@@ -145,8 +208,7 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
                 on_output_field_change(index, event.target.value)
               }
             />
-            {output_fields.length > 1 && (
-              <button
+            <button
                 type="button"
                 className="rounded-md border px-1.5 py-1 text-sm text-muted-foreground hover:text-foreground"
                 title="Remove field"
@@ -154,7 +216,6 @@ function OutputConfigForm({ node }: { node: GraphNode }): JSX.Element {
               >
                 &times;
               </button>
-            )}
           </div>
         ))}
         <button

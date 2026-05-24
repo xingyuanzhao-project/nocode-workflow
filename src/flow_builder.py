@@ -36,6 +36,17 @@ from src.flow_loader import (
     PROVIDER_DEFAULT_API_BASE,
     StepConfig,
 )
+
+PROVIDER_DEFAULT_ENV_VAR: Dict[str, str] = {
+    "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
+"""Default environment variable name per hosted provider.
+
+When a flow's LLM resource omits ``api_key_env``, the builder derives it
+from the provider name using this mapping. This lets the user configure
+the key once (in the API Keys page or .env file) without repeating the
+env var name in every LLM node."""
 from src.io_schema import IOSchema
 from src.node_registry import NodeTypeRegistry, get_default_registry
 from src.processors import GenericProcessor
@@ -48,7 +59,12 @@ _PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
 
 def _load_dotenv_into_environ(project_root: Path) -> None:
-    """Load ``project_root/.env`` into :data:`os.environ`.
+    """Load ``project_root/.env`` into :data:`os.environ` (overriding).
+
+    The ``.env`` file is the canonical store for API keys persisted by
+    the server's API Keys page. Values in ``.env`` override any
+    pre-existing environment variables so the worker always uses the
+    latest key the user saved.
 
     Uses :mod:`dotenv` when importable; otherwise falls back to a minimal
     ``KEY=VALUE`` parser that handles blank lines, ``#`` comments, and
@@ -69,7 +85,7 @@ def _load_dotenv_into_environ(project_root: Path) -> None:
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(dotenv_path=env_path, override=False)
+        load_dotenv(dotenv_path=env_path, override=True)
         return
     except ImportError:
         pass
@@ -86,7 +102,7 @@ def _load_dotenv_into_environ(project_root: Path) -> None:
             raw_value = value_part.strip()
             if len(raw_value) >= 2 and raw_value[0] == raw_value[-1] and raw_value[0] in {"'", '"'}:
                 raw_value = raw_value[1:-1]
-            os.environ.setdefault(key_name, raw_value)
+            os.environ[key_name] = raw_value
 
 
 def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
@@ -128,11 +144,23 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
         resolved_api_key = resolved_api_key_opt
     elif resource.provider in LOCAL_PROVIDERS:
         resolved_api_key = "dummy"
+    elif resource.provider in PROVIDER_DEFAULT_ENV_VAR:
+        derived_env_var = PROVIDER_DEFAULT_ENV_VAR[resource.provider]
+        resolved_api_key_opt = os.environ.get(derived_env_var)
+        if not resolved_api_key_opt:
+            raise ValueError(
+                f"Resource {resource.id!r} (provider={resource.provider!r}) "
+                f"has no api_key_env set. Derived default env var "
+                f"{derived_env_var!r} from provider, but it is not set. "
+                "Configure the key in the API Keys page or add it to the "
+                "project-root .env file."
+            )
+        resolved_api_key = resolved_api_key_opt
     else:
         raise ValueError(
             f"Resource {resource.id!r} (provider={resource.provider!r}) has "
-            "neither api_key nor api_key_env set. Hosted providers require "
-            "api_key_env pointing at a variable in the .env file."
+            "neither api_key nor api_key_env set, and no default env var "
+            "is known for this provider."
         )
 
     return resource.model_copy(
@@ -665,6 +693,35 @@ class FlowRunner:
             flow_prompts_path=self._flow_prompts_path,
         )
 
+    def _build_codebook_instruction(self) -> Optional[str]:
+        """Format selected codebook entries as an instruction block.
+
+        Returns ``None`` when no taxonomy is loaded or all entries are
+        filtered out by ``taxonomy_selected_keys``.
+        """
+        if not self.taxonomy:
+            return None
+
+        selected_keys = self.schema.flow.taxonomy_selected_keys
+        entries: Dict[str, Any] = {}
+        for key, value in self.taxonomy.items():
+            if key.startswith("_"):
+                continue
+            if not isinstance(value, dict):
+                continue
+            if selected_keys is not None and key not in selected_keys:
+                continue
+            entries[key] = value
+
+        if not entries:
+            return None
+
+        return (
+            "Use the following codebook to process each record. "
+            "Each entry defines a variable to extract or classify:\n"
+            + json.dumps(entries, indent=2, ensure_ascii=False)
+        )
+
     async def _run_generic(
         self,
         df: pd.DataFrame,
@@ -706,10 +763,16 @@ class FlowRunner:
         temperature = processor_config["processing"].get("temperature", 0.3)
         max_tokens = processor_config["processing"].get("max_tokens_summary", 4096)
 
+        instructions = list(prompt_resolved.instructions)
+        if step.has_codebook:
+            codebook_block = self._build_codebook_instruction()
+            if codebook_block:
+                instructions.append(codebook_block)
+
         processor = GenericProcessor(
             client=client,
             io_schema=io_schema,
-            instructions=prompt_resolved.instructions,
+            instructions=instructions,
             model_name=model_name,
             logger=self.logger,
             temperature=temperature,
@@ -870,10 +933,7 @@ def build_flow(
             "CLI, use a filesystem path instead."
         )
     elif not flow_config.taxonomy or not Path(flow_config.taxonomy).exists():
-        taxonomy_payload: Dict[str, Any] = {
-            "context_definitions": {},
-            "label_options": {},
-        }
+        taxonomy_payload: Dict[str, Any] = {}
         logging.getLogger(__name__).warning(
             "Taxonomy file %r not found or not configured; "
             "proceeding with empty taxonomy.",

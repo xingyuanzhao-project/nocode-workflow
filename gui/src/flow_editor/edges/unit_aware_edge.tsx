@@ -21,12 +21,12 @@ import {
   isValidUnitTransition,
   type UnitValue,
 } from "@/lib/unit_compatibility";
+import {
+  buildEdgeBadgeText,
+  type EdgeEndpointSummary,
+} from "@/flow_editor/edges/edge_badge_text";
 
-interface ConnectedNodeSummary {
-  label: string;
-  unit: UnitValue | null;
-  category: string | null;
-}
+interface ConnectedNodeSummary extends EdgeEndpointSummary {}
 
 function readNodeSummary(
   nodes: Array<{ id: string; data?: Record<string, unknown> }>,
@@ -37,14 +37,11 @@ function readNodeSummary(
     return null;
   }
   const data = matching_node.data ?? {};
-  const label_value =
-    typeof data.label === "string"
-      ? data.label
-      : String(data.node_type_id ?? node_id);
   const unit_value = data.unit;
   const category_value = data.category;
   return {
-    label: label_value,
+    node_type_id:
+      typeof data.node_type_id === "string" ? data.node_type_id : null,
     unit: unit_value === "row" ? "row" : null,
     category:
       typeof category_value === "string" ? category_value : null,
@@ -93,12 +90,7 @@ export function UnitAwareEdge(props: EdgeProps): JSX.Element {
     target_unit !== null &&
     !isValidUnitTransition(source_unit, target_unit);
 
-  const badge_text =
-    source_summary && target_summary
-      ? `${source_summary.unit ?? source_summary.category ?? "?"} \u2192 ${
-          target_summary.unit ?? target_summary.category ?? "?"
-        }`
-      : "";
+  const badge_text = buildEdgeBadgeText(source_summary, target_summary);
 
   return (
     <>

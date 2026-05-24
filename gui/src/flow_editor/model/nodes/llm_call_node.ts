@@ -94,6 +94,15 @@ export class LLMCallNode extends BaseNode {
           : 1024;
   }
 
+  private static readonly PROVIDER_DEFAULT_ENV_VAR: Record<string, string> = {
+    openrouter: "OPENROUTER_API_KEY",
+    openai: "OPENAI_API_KEY",
+  };
+
+  private static readonly LOCAL_PROVIDERS: ReadonlySet<string> = new Set([
+    "local_vllm", "ollama", "vllm", "llama_cpp",
+  ]);
+
   emit_config(): Record<string, unknown> {
     const out: Record<string, unknown> = {
       resource_id: this.resource_id,
@@ -105,8 +114,11 @@ export class LLMCallNode extends BaseNode {
     if (this.api_base !== null) {
       out.api_base = this.api_base;
     }
-    if (this.api_key_env !== null) {
-      out.api_key_env = this.api_key_env;
+    const effective_api_key_env = this.api_key_env
+      ?? LLMCallNode.PROVIDER_DEFAULT_ENV_VAR[this.provider]
+      ?? null;
+    if (effective_api_key_env !== null && !LLMCallNode.LOCAL_PROVIDERS.has(this.provider)) {
+      out.api_key_env = effective_api_key_env;
     }
     if (this.api_key !== null) {
       out.api_key = this.api_key;

@@ -19,6 +19,7 @@ import {
   providerNameSchema,
   type ProviderName,
 } from "@/schemas/models";
+import { Combobox } from "@/components/ui/combobox";
 
 const providerFormSchema = z.object({
   resource_id: z.string().min(1),
@@ -30,6 +31,13 @@ const providerFormSchema = z.object({
   max_tokens: z.coerce.number().int().positive(),
 });
 type ProviderFormValues = z.infer<typeof providerFormSchema>;
+
+const PROVIDER_ENV_VAR: Record<string, string> = {
+  openrouter: "OPENROUTER_API_KEY",
+  openai: "OPENAI_API_KEY",
+};
+
+const LOCAL_PROVIDERS = new Set(["local_vllm", "ollama", "vllm", "llama_cpp"]);
 
 export interface LLMProviderConfigFormProps {
   node: GraphNode;
@@ -58,8 +66,7 @@ function readInitialValues(node: GraphNode): ProviderFormValues {
     provider: provider_value,
     model: typeof data.model === "string" ? data.model : "",
     api_base: typeof data.api_base === "string" ? data.api_base : null,
-    api_key_env:
-      typeof data.api_key_env === "string" ? data.api_key_env : null,
+    api_key_env: PROVIDER_ENV_VAR[provider_value] ?? null,
     temperature: typeof data.temperature === "number" ? data.temperature : 0,
     max_tokens: typeof data.max_tokens === "number" ? data.max_tokens : 1024,
   };
@@ -80,6 +87,11 @@ export function LLMProviderConfigForm({
   useAutoSaveNodeData(node.id, form.watch);
 
   const current_provider = form.watch("provider");
+
+  useEffect(() => {
+    const derived = PROVIDER_ENV_VAR[current_provider] ?? null;
+    form.setValue("api_key_env", derived, { shouldDirty: true });
+  }, [current_provider]); // eslint-disable-line react-hooks/exhaustive-deps
   const models_query = useQuery({
     queryKey: ["provider-models", current_provider],
     queryFn: () => getProviderModels(current_provider),
@@ -115,29 +127,24 @@ export function LLMProviderConfigForm({
 
       <label className="flex flex-col gap-1 text-xs">
         <span className="font-medium">Model</span>
-        <input
-          className="rounded-md border bg-background px-2 py-1 text-sm"
-          list={`models_for_${current_provider}`}
-          placeholder="meta-llama/llama-3.1-70b-instruct"
-          {...form.register("model")}
+        <Combobox
+          options={(models_query.data?.models ?? []).map((m) => ({
+            value: m.id,
+            label: m.label,
+          }))}
+          value={form.watch("model")}
+          onChange={(val) =>
+            form.setValue("model", val, { shouldDirty: true })
+          }
+          placeholder="openrouter/auto"
+          loading={models_query.isLoading}
+          loadingText="Loading model catalogue…"
+          errorText={
+            models_query.isError
+              ? "Could not load model catalogue."
+              : undefined
+          }
         />
-        <datalist id={`models_for_${current_provider}`}>
-          {(models_query.data?.models ?? []).map((model_entry) => (
-            <option key={model_entry.id} value={model_entry.id}>
-              {model_entry.label}
-            </option>
-          ))}
-        </datalist>
-        {models_query.isLoading ? (
-          <span className="text-muted-foreground">
-            Loading model catalogue...
-          </span>
-        ) : null}
-        {models_query.isError ? (
-          <span className="text-destructive">
-            Could not load model catalogue.
-          </span>
-        ) : null}
       </label>
 
       <label className="flex flex-col gap-1 text-xs">
@@ -159,20 +166,13 @@ export function LLMProviderConfigForm({
       <label className="flex flex-col gap-1 text-xs">
         <span className="font-medium">API key env var</span>
         <input
-          className="rounded-md border bg-background px-2 py-1 text-sm"
-          placeholder="OPENROUTER_API_KEY"
-          value={form.watch("api_key_env") ?? ""}
-          onChange={(event) =>
-            form.setValue(
-              "api_key_env",
-              event.target.value === "" ? null : event.target.value,
-              { shouldDirty: true },
-            )
-          }
+          className="rounded-md border bg-muted px-2 py-1 text-sm text-muted-foreground"
+          readOnly
+          disabled
+          value={form.watch("api_key_env") ?? (LOCAL_PROVIDERS.has(current_provider) ? "(not required)" : "")}
         />
         <span className="text-muted-foreground">
-          Name of the environment variable the worker reads the key
-          from at run time.
+          Derived from provider. Configure the key in the API Keys page.
         </span>
       </label>
 
