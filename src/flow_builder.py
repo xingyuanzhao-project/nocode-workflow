@@ -21,8 +21,9 @@ import asyncio
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -33,13 +34,20 @@ from src.flow_loader import (
     LLMResource,
     LOCAL_PROVIDERS,
     LoggingConfig,
-    PROVIDER_DEFAULT_API_BASE,
-    StepConfig,
+    ProcessorConfig,
 )
 
 PROVIDER_DEFAULT_ENV_VAR: Dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+    "google": "GOOGLE_API_KEY",
+}
+
+LOCAL_ENDPOINT_ENV_VAR: Dict[str, str] = {
+    "ollama": "OLLAMA_API_BASE",
+    "vllm": "VLLM_API_BASE",
+    "llama_cpp": "LLAMA_CPP_API_BASE",
 }
 """Default environment variable name per hosted provider.
 
@@ -47,9 +55,10 @@ When a flow's LLM resource omits ``api_key_env``, the builder derives it
 from the provider name using this mapping. This lets the user configure
 the key once (in the API Keys page or .env file) without repeating the
 env var name in every LLM node."""
-from src.io_schema import IOSchema
+from src.io_schema import IOSchema, to_prompt_output_format_text
 from src.node_registry import NodeTypeRegistry, get_default_registry
-from src.processors import GenericProcessor
+from src.processors import GenericProcessor, ParseWarning
+from src.prompt_constructor import PromptConstructor
 from src.prompt_resolver import ResolvedPrompt, resolve_step_prompt
 from src.utils import setup_logger
 
@@ -58,62 +67,60 @@ _PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 """Absolute path of the project root directory (the parent of ``src/``)."""
 
 
+@dataclass
+class ProcessorResult:
+    """Container for processor output. Stores results as dictionaries.
+
+    The output node receives this and is solely responsible for
+    writing to CSV/JSON. Another processor can also consume this
+    as input — call :meth:`to_input_rows` to get the normalized form.
+    """
+
+    rows: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    """row_index -> {output_field: value}"""
+
+    model_name: str = ""
+    output_fields: List[str] = field(default_factory=list)
+
+    def to_input_rows(self) -> Dict[int, Dict[str, str]]:
+        """Normalize to {row_index: {field: str_value}} for downstream consumption."""
+        return {
+            idx: {k: str(v) for k, v in row.items()}
+            for idx, row in self.rows.items()
+        }
+
+
 def _load_dotenv_into_environ(project_root: Path) -> None:
     """Load ``project_root/.env`` into :data:`os.environ` (overriding).
 
     The ``.env`` file is the canonical store for API keys persisted by
     the server's API Keys page. Values in ``.env`` override any
     pre-existing environment variables so the worker always uses the
-    latest key the user saved.
-
-    Uses :mod:`dotenv` when importable; otherwise falls back to a minimal
-    ``KEY=VALUE`` parser that handles blank lines, ``#`` comments, and
-    values optionally wrapped in matching single or double quotes. Missing
-    ``.env`` files are silently ignored so the rest of the flow still runs
-    when every resource uses a literal ``api_key``.
-
-    Args:
-        project_root (Path): Directory that contains the ``.env`` file.
-
-    Returns:
-        None: This function mutates :data:`os.environ` in place.
+    latest key the user saved. Missing ``.env`` files are silently
+    ignored so the flow still runs when every resource uses a literal
+    ``api_key``.
     """
+    from dotenv import load_dotenv
+
     env_path = project_root / ".env"
     if not env_path.exists():
         return
-
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(dotenv_path=env_path, override=True)
-        return
-    except ImportError:
-        pass
-
-    with env_path.open("r", encoding="utf-8") as env_file:
-        for raw_line in env_file:
-            stripped_line = raw_line.strip()
-            if not stripped_line or stripped_line.startswith("#"):
-                continue
-            if "=" not in stripped_line:
-                continue
-            key_part, _, value_part = stripped_line.partition("=")
-            key_name = key_part.strip()
-            raw_value = value_part.strip()
-            if len(raw_value) >= 2 and raw_value[0] == raw_value[-1] and raw_value[0] in {"'", '"'}:
-                raw_value = raw_value[1:-1]
-            os.environ[key_name] = raw_value
+    load_dotenv(dotenv_path=env_path, override=True)
 
 
 def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
     """Fill in ``api_base`` and ``api_key`` for a validated resource.
 
-    ``api_base`` falls back to
-    :data:`src.flow_loader.PROVIDER_DEFAULT_API_BASE` when omitted.
+    For local providers (``ollama``, ``vllm``, ``llama_cpp``), the
+    endpoint is resolved from the environment variable set by the
+    API Keys page (e.g. ``VLLM_API_BASE``).  For cloud providers the
+    endpoint comes from ``resource.api_base`` (set in the flow/node
+    config).  No hardcoded fallback exists for either — if the value
+    is absent the call fails with a clear configuration error.
+
     ``api_key`` is resolved from :attr:`LLMResource.api_key_env` against
-    :data:`os.environ`. For ``local_vllm`` the convention from the existing
-    codebase is to pass the literal string ``"dummy"`` when no explicit
-    key is provided.
+    :data:`os.environ`. For local providers the convention is to pass
+    the literal string ``"dummy"`` when no explicit key is provided.
 
     Args:
         resource (LLMResource): The validated resource whose credentials
@@ -124,11 +131,29 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
         ``api_key`` populated and ``api_key_env`` cleared.
 
     Raises:
-        ValueError: If ``api_key_env`` is declared but the named
-            environment variable is missing, or if a hosted provider ends
-            up with no usable API key.
+        ValueError: If ``api_base`` is missing for a cloud provider,
+            if a local provider has no endpoint URL configured,
+            if ``api_key_env`` is declared but the named environment
+            variable is missing, or if a hosted provider ends up with
+            no usable API key.
     """
-    resolved_api_base = resource.api_base or PROVIDER_DEFAULT_API_BASE[resource.provider]
+    if resource.provider in LOCAL_PROVIDERS:
+        env_var_name = LOCAL_ENDPOINT_ENV_VAR[resource.provider]
+        env_base = os.environ.get(env_var_name, "").strip()
+        if not env_base:
+            raise ValueError(
+                f"Resource {resource.id!r} (provider={resource.provider!r}): "
+                f"no endpoint URL configured. Set it in the API Keys page "
+                f"or add {env_var_name!r} to the project-root .env file."
+            )
+        resolved_api_base = env_base
+    else:
+        if not resource.api_base:
+            raise ValueError(
+                f"Resource {resource.id!r} (provider={resource.provider!r}): "
+                f"no api_base configured. Set it in the LLM node config."
+            )
+        resolved_api_base = resource.api_base
 
     if resource.api_key is not None:
         resolved_api_key: str = resource.api_key
@@ -205,7 +230,7 @@ def _build_processor_runtime_config(
     prompts_payload: Dict[str, Any],
     logging_config: LoggingConfig,
     *,
-    step: Optional[StepConfig] = None,
+    step: Optional[ProcessorConfig] = None,
     registry: Optional[NodeTypeRegistry] = None,
     flow_prompts_path: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -221,7 +246,7 @@ def _build_processor_runtime_config(
     ``io_schema_resolved`` and ``prompt_resolved`` keys:
 
     - ``io_schema_resolved`` (Optional[IOSchema]) — the step's
-      :attr:`src.flow_loader.StepConfig.io_schema` if set, otherwise the
+      :attr:`src.flow_loader.ProcessorConfig.io_schema` if set, otherwise the
       :attr:`src.node_registry.NodeTypeEntry.default_io_schema` for
       ``step.type`` wrapped in :class:`src.io_schema.IOSchema`, otherwise
       ``None``. A ``None`` value leaves the processor on its hardcoded
@@ -244,7 +269,7 @@ def _build_processor_runtime_config(
         logging_config (LoggingConfig): The flow's logging configuration,
             surfaced under the ``logging`` key so processors can honour
             :attr:`LoggingConfig.log_response`.
-        step (Optional[StepConfig]): The step being configured. When
+        step (Optional[ProcessorConfig]): The step being configured. When
             supplied, ``io_schema_resolved`` and ``prompt_resolved``
             are injected into the returned dict. When ``None``, only
             the base keys are returned.
@@ -342,29 +367,18 @@ class _Checkpoint:
     returns the set of entity ids that already succeeded so they can be
     skipped.
 
-    Attributes:
-        checkpoint_dir (Path): Directory where checkpoint files are
-            stored.
-        completed_file (Path): JSON file listing completed entity ids.
+    Also manages a ``warnings.json`` file that accumulates per-row
+    warnings (LLM errors, parse failures) visible in the run GUI.
     """
 
     def __init__(self, output_dir: Path, flow_name: str) -> None:
-        """Initialise the checkpoint under ``output_dir/.checkpoint/``.
-
-        Args:
-            output_dir (Path): Parent of the summary CSV.
-            flow_name (str): Used in log messages.
-        """
         self.checkpoint_dir = output_dir / ".checkpoint"
         self.completed_file = self.checkpoint_dir / "completed_entities.json"
+        self.warnings_file = self.checkpoint_dir / "warnings.json"
         self._flow_name = flow_name
 
     def completed_entity_ids(self) -> Set[str]:
-        """Load previously completed entity ids from disk.
-
-        Returns:
-            Set[str]: Entity ids (stringified) that already succeeded.
-        """
+        """Load previously completed entity ids from disk."""
         if not self.completed_file.exists():
             return set()
         with self.completed_file.open("r", encoding="utf-8") as f:
@@ -372,16 +386,28 @@ class _Checkpoint:
         return set(data.get("completed", []))
 
     def mark_completed(self, entity_id: Any) -> None:
-        """Append one entity id to the checkpoint file.
-
-        Args:
-            entity_id (Any): The entity id to record.
-        """
+        """Append one entity id to the checkpoint file."""
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         completed = self.completed_entity_ids()
         completed.add(str(entity_id))
         with self.completed_file.open("w", encoding="utf-8") as f:
             json.dump({"completed": sorted(completed)}, f, indent=2)
+
+    def add_warning(self, message: str) -> None:
+        """Append a warning to the run's warnings file."""
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        warnings = self.get_warnings()
+        warnings.append(message)
+        with self.warnings_file.open("w", encoding="utf-8") as f:
+            json.dump(warnings, f, indent=2)
+
+    def get_warnings(self) -> List[str]:
+        """Load warnings from disk."""
+        if not self.warnings_file.exists():
+            return []
+        with self.warnings_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
 
     def clear(self) -> None:
         """Remove the checkpoint file to start fresh."""
@@ -394,17 +420,8 @@ class FlowRunner:
 
     The runner owns the input DataFrame, all output writers, the logger,
     and the asyncio semaphore used to cap concurrent LLM calls. It does not
-    own any LLM-call logic: every per-turn call goes through the
-    appropriate processor class from :mod:`src.processors`.
-
-    Supported step types: every id whose category is ``processor`` in
-    :mod:`src.node_registry`'s default registry
-    (``config/node_types.yaml``). As of this revision that covers:
-
-    - ``conversation_summary_first`` / ``conversation_summary_update``
-    - ``single_summary``
-    - ``classification``
-    - ``label_extraction`` / ``label_summary`` (hybrid and full_async)
+    own any LLM-call logic: every per-turn call goes through
+    :class:`src.processors.GenericProcessor`.
 
     Attributes:
         schema (FlowSchema): The validated flow definition.
@@ -493,10 +510,9 @@ class FlowRunner:
     def _read_input_columns(self) -> List[str]:
         """Read the list of selected input columns from the data input node.
 
-        Supports three formats for backward compatibility:
-        - New: ``input_columns: ["col1", "col2"]`` (plain list of strings)
-        - Legacy object: ``input_columns: [{role: "text", column: "col1"}]``
-        - Legacy flat: ``column_roles: {text: "col1"}``
+        Supports two formats:
+        - Plain list: ``input_columns: ["col1", "col2"]``
+        - Object list: ``input_columns: [{column: "col1"}, {column: "col2"}]``
 
         Returns an empty list if nothing is configured (caller will default
         to all DataFrame columns).
@@ -517,17 +533,13 @@ class FlowRunner:
                             result.append(str(entry["column"]))
                     if result:
                         return result
-                raw = node.config.get("column_roles", {})
-                if isinstance(raw, dict) and raw:
-                    return [str(v) for v in raw.values() if v]
         return []
 
     def _resolve_output_fields(self) -> List[str]:
         """Read ``output_fields`` from the first output node's config.
 
-        Falls back to ``["summary_all_context"]`` when no output node
-        declares the field, preserving backward compatibility with flows
-        authored before this feature was added.
+        Raises ValueError if no output node declares output fields,
+        since without them the LLM call has no defined output schema.
         """
         for node in self.schema.document.nodes:
             if node.type in {"csv_output", "json_output"}:
@@ -536,7 +548,10 @@ class FlowRunner:
                     fields = [str(f) for f in raw if f]
                     if fields:
                         return fields
-        return ["summary_all_context"]
+        raise ValueError(
+            "No output node declares 'output_fields'. "
+            "Configure at least one output field in the output node."
+        )
 
     def run(self) -> None:
         """Execute the flow synchronously.
@@ -561,11 +576,6 @@ class FlowRunner:
         """
         flow = self.schema.flow
         input_df = self._load_input_data()
-        model_name = (
-            self.resolved_resources["default"].model
-            if "default" in self.resolved_resources
-            else next(iter(self.resolved_resources.values())).model
-        )
 
         if flow.processing_limit is not None:
             input_df = input_df.head(flow.processing_limit)
@@ -573,27 +583,26 @@ class FlowRunner:
                 "Processing limit applied: %d rows", len(input_df),
             )
 
-        processed_df = input_df.copy()
-        for _field in self._output_fields:
-            if _field not in processed_df.columns:
-                processed_df[_field] = ""
-
-        for step_index, step in enumerate(flow.steps):
+        processor_results: List[ProcessorResult] = []
+        current_source: Union[pd.DataFrame, ProcessorResult] = input_df
+        for proc_index, step in enumerate(flow.processors):
             self.logger.info(
-                "Dispatching step %d/%d: type=%s",
-                step_index + 1, len(flow.steps), step.type,
+                "Dispatching processor %d/%d: type=%s",
+                proc_index + 1, len(flow.processors), step.type,
             )
 
             if step.type == "processor":
-                processed_df = await self._run_generic(
-                    df=processed_df, step=step,
+                result = await self._run_generic(
+                    source=current_source, step=step,
                 )
+                processor_results.append(result)
+                current_source = result
             else:
                 raise NotImplementedError(
                     f"Step type {step.type!r} is not recognised by the runner."
                 )
 
-        self._write_outputs(processed_df=processed_df, model_name=model_name)
+        self._write_outputs(input_df=input_df, results=processor_results)
 
     def _load_input_data(self) -> pd.DataFrame:
         """Load the input data file.
@@ -630,11 +639,11 @@ class FlowRunner:
 
         return input_df
 
-    def _select_resource_id_for_step(self, step: StepConfig) -> str:
+    def _select_resource_id_for_step(self, step: ProcessorConfig) -> str:
         """Resolve the LLM resource id used by a step.
 
         Args:
-            step (StepConfig): The step whose resource id is being resolved.
+            step (ProcessorConfig): The step whose resource id is being resolved.
 
         Returns:
             str: The resource id. Falls back to ``"default"`` when the
@@ -653,7 +662,7 @@ class FlowRunner:
         return resource_id
 
     def _resolve_processor_config_for_step(
-        self, step: StepConfig,
+        self, step: ProcessorConfig,
     ) -> Dict[str, Any]:
         """Return a per-step processor runtime config.
 
@@ -665,11 +674,11 @@ class FlowRunner:
         pass the resulting dict straight to their processor constructors.
 
         Args:
-            step (StepConfig): The step being dispatched. Its
-                :attr:`StepConfig.llm` selects the resource; its
-                :attr:`StepConfig.io_schema`, :attr:`StepConfig.prompt`,
-                :attr:`StepConfig.prompts_ref`, and
-                :attr:`StepConfig.prompt_overrides` feed the resolution.
+            step (ProcessorConfig): The step being dispatched. Its
+                :attr:`ProcessorConfig.llm` selects the resource; its
+                :attr:`ProcessorConfig.io_schema`, :attr:`ProcessorConfig.prompt`,
+                :attr:`ProcessorConfig.prompts_ref`, and
+                :attr:`ProcessorConfig.prompt_overrides` feed the resolution.
 
         Returns:
             Dict[str, Any]: The per-step config shaped as documented by
@@ -693,11 +702,12 @@ class FlowRunner:
             flow_prompts_path=self._flow_prompts_path,
         )
 
-    def _build_codebook_instruction(self) -> Optional[str]:
-        """Format selected codebook entries as an instruction block.
+    def _build_codebook_context(self) -> Optional[str]:
+        """Build the adaptive codebook payload for prompt injection.
 
-        Returns ``None`` when no taxonomy is loaded or all entries are
-        filtered out by ``taxonomy_selected_keys``.
+        Returns the selected codebook entries as a JSON string, or
+        ``None`` when no taxonomy is loaded or all entries are filtered
+        out by ``taxonomy_selected_keys``.
         """
         if not self.taxonomy:
             return None
@@ -716,23 +726,44 @@ class FlowRunner:
         if not entries:
             return None
 
-        return (
-            "Use the following codebook to process each record. "
-            "Each entry defines a variable to extract or classify:\n"
-            + json.dumps(entries, indent=2, ensure_ascii=False)
-        )
+        return json.dumps(entries, indent=2, ensure_ascii=False)
+
+    def _normalize_input(
+        self,
+        source: Union[pd.DataFrame, ProcessorResult],
+        output_keys: List[str],
+    ) -> Dict[int, Dict[str, str]]:
+        """Normalize any input source to {row_index: {field: str_value}}.
+
+        Accepts a DataFrame (from data input node) or a ProcessorResult
+        (from a previous processor). Same interface either way.
+        """
+        if isinstance(source, ProcessorResult):
+            return source.to_input_rows()
+
+        selected_columns = self._input_columns
+        if not selected_columns:
+            selected_columns = [
+                c for c in source.columns if c not in output_keys
+            ]
+        input_rows: Dict[int, Dict[str, str]] = {}
+        for row in source.itertuples():
+            input_rows[row.Index] = {
+                col: str(getattr(row, col, "")) for col in selected_columns
+            }
+        return input_rows
 
     async def _run_generic(
         self,
-        df: pd.DataFrame,
-        step: StepConfig,
-    ) -> pd.DataFrame:
+        source: Union[pd.DataFrame, ProcessorResult],
+        step: ProcessorConfig,
+    ) -> ProcessorResult:
         """Run the generic processor on every row concurrently.
 
-        Builds a :class:`GenericProcessor` from the step's resolved
-        io_schema and prompt, then fires all rows in parallel bounded
-        by ``max_concurrent_rows``. Each row's result dict is spread
-        into the DataFrame's output columns.
+        *source* can be a DataFrame (from data input node) or a
+        ProcessorResult (from a previous processor). The processor
+        detects and normalizes the input automatically. Returns a
+        :class:`ProcessorResult`. Does NOT modify the source.
         """
         flow = self.schema.flow
         async_config = flow.async_config
@@ -760,91 +791,150 @@ class FlowRunner:
             llm_semaphore = asyncio.Semaphore(async_config.max_concurrent_llm_calls)
 
         model_name = processor_config["model"]["name"]
-        temperature = processor_config["processing"].get("temperature", 0.3)
-        max_tokens = processor_config["processing"].get("max_tokens_summary", 4096)
+        temperature = processor_config["processing"]["temperature"]
+        max_tokens = processor_config["processing"]["max_tokens_summary"]
 
-        instructions = list(prompt_resolved.instructions)
+        constructor = PromptConstructor(
+            base_instructions=list(prompt_resolved.instructions),
+        )
+
         if step.has_codebook:
-            codebook_block = self._build_codebook_instruction()
-            if codebook_block:
-                instructions.append(codebook_block)
+            constructor.add_layer(
+                name="codebook",
+                instruction=(
+                    "Use the following codebook to perform the task. "
+                ),
+                context=self._build_codebook_context(),
+            )
 
+        constructor.add_layer(
+            name="output_format",
+            instruction=(
+                "The output must include the following fields "
+                "with these data types:"
+            ),
+            context=to_prompt_output_format_text(io_schema),
+        )
+
+        resource = self.resolved_resources[resource_id]
         processor = GenericProcessor(
             client=client,
             io_schema=io_schema,
-            instructions=instructions,
+            system_message=constructor.build_system_message(),
             model_name=model_name,
+            provider=resource.provider,
             logger=self.logger,
             temperature=temperature,
             max_tokens=max_tokens,
             llm_semaphore=llm_semaphore,
         )
 
-        processed_df = df.copy()
         row_semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
         output_keys = list(io_schema.output.keys())
 
-        selected_columns = self._input_columns
-        if not selected_columns:
-            selected_columns = [
-                c for c in processed_df.columns if c not in output_keys
-            ]
+        input_rows = self._normalize_input(source, output_keys)
 
         async def _process_row(
             row_index: int, input_fields: Dict[str, str],
-        ) -> Tuple[int, Dict[str, Any]]:
+        ) -> Tuple[int, Optional[Dict[str, Any]], Optional[str]]:
+            """Returns (row_index, result_dict_or_None, warning_or_None)."""
             async with row_semaphore:
                 cleaned_fields = {
                     k: processor.clean_text(v) for k, v in input_fields.items()
                 }
                 if all(not v.strip() for v in cleaned_fields.values()):
-                    return row_index, {k: "" for k in output_keys}
-                result = await processor.execute(cleaned_fields, row_index=row_index)
-                return row_index, result
+                    return row_index, {k: "" for k in output_keys}, None
+                try:
+                    result = await processor.execute(
+                        cleaned_fields, row_index=row_index,
+                    )
+                except ParseWarning as pw:
+                    return row_index, None, f"Row {row_index}: unparseable LLM response (first 200 chars: {pw.raw_content_preview})"
+                except Exception as exc:
+                    return row_index, None, f"Row {row_index}: LLM error — {exc}"
+                return row_index, result, None
 
         tasks = []
-        for row in processed_df.itertuples():
-            input_fields = {
-                col: str(getattr(row, col, "")) for col in selected_columns
-            }
-            tasks.append(_process_row(row.Index, input_fields))
+        for row_index, input_fields in input_rows.items():
+            tasks.append(_process_row(row_index, input_fields))
 
+        result = ProcessorResult(
+            model_name=model_name,
+            output_fields=output_keys,
+        )
+        failed_count = 0
         use_pb = flow.display.use_progress_bar
         for completed in tqdm_async.as_completed(
             tasks, total=len(tasks),
             desc="Processing rows", disable=not use_pb,
         ):
-            row_index, result_dict = await completed
-            for key, value in result_dict.items():
-                if key in processed_df.columns or key in output_keys:
-                    processed_df.at[row_index, key] = value
+            row_index, result_dict, warning = await completed
+            if warning:
+                self._checkpoint.add_warning(warning)
+                failed_count += 1
+                continue
+            result.rows[row_index] = result_dict
             self._checkpoint.mark_completed(row_index)
 
-        return processed_df
+        if failed_count:
+            self.logger.error(
+                "%d row(s) failed (not checkpointed, will retry on next run).",
+                failed_count,
+            )
 
-    def _write_outputs(self, processed_df: pd.DataFrame, model_name: str) -> None:
-        """Write the processed DataFrame to the configured output path."""
+        return result
+
+    def _write_outputs(
+        self,
+        input_df: pd.DataFrame,
+        results: List[ProcessorResult],
+    ) -> None:
+        """Assemble output rows from input data + processor results and write CSV.
+
+        This is the output node — it is solely responsible for building
+        and saving the final file. Processors have nothing to do with it.
+        """
         output_config = self.schema.flow.output
-        processed_df = processed_df.copy()
-        processed_df["model"] = model_name
+        output_fields = self._output_fields
+
+        rows: List[Dict[str, Any]] = []
+        for row_idx in range(len(input_df)):
+            row_data: Dict[str, Any] = {}
+            input_row = input_df.iloc[row_idx]
+            for col in input_df.columns:
+                row_data[col] = input_row[col]
+
+            for proc_result in results:
+                result_dict = proc_result.rows.get(row_idx)
+                if result_dict is not None:
+                    for field_name in output_fields:
+                        if field_name in result_dict:
+                            row_data[field_name] = result_dict[field_name]
+
+                row_data["model"] = proc_result.model_name
+
+            rows.append(row_data)
 
         summary_path = Path(output_config.summary_csv)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
 
+        output_df = pd.DataFrame(rows)
+
         if output_config.extend and summary_path.exists():
             existing_df = pd.read_csv(summary_path, encoding="utf-8")
+            model_name = results[0].model_name if results else ""
             if "model" in existing_df.columns:
                 existing_df = existing_df[existing_df["model"] != model_name]
-            combined_df = pd.concat([existing_df, processed_df], ignore_index=True)
+            combined_df = pd.concat([existing_df, output_df], ignore_index=True)
             combined_df.to_csv(summary_path, index=False, encoding="utf-8")
             self.logger.info(
                 "Output extended: %d existing + %d new = %d total rows",
-                len(existing_df), len(processed_df), len(combined_df),
+                len(existing_df), len(output_df), len(combined_df),
             )
         else:
-            processed_df.to_csv(summary_path, index=False, encoding="utf-8")
+            output_df.to_csv(summary_path, index=False, encoding="utf-8")
             self.logger.info(
-                "Output saved to %s (%d rows)", summary_path, len(processed_df),
+                "Output saved to %s (%d rows)", summary_path, len(output_df),
             )
 
 
@@ -974,10 +1064,10 @@ def build_flow(
         )
 
     logger.info(
-        "Flow %r loaded with %d resource(s) and %d step(s).",
+        "Flow %r loaded with %d resource(s) and %d processor(s).",
         flow_config.name,
         len(resolved_resources),
-        len(flow_config.steps),
+        len(flow_config.processors),
     )
 
     return FlowRunner(

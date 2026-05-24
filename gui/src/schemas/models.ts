@@ -7,7 +7,8 @@ import { z } from "zod";
 export const providerNameSchema = z.union([
   z.literal("openrouter"),
   z.literal("openai"),
-  z.literal("local_vllm"),
+  z.literal("claude"),
+  z.literal("google"),
   z.literal("ollama"),
   z.literal("vllm"),
   z.literal("llama_cpp"),

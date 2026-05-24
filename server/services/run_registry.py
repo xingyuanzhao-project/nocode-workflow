@@ -279,6 +279,7 @@ class RunRegistry:
             started_at=raw_hash.get(_STARTED_AT_FIELD) or None,
             finished_at=raw_hash.get(_FINISHED_AT_FIELD) or None,
             error=raw_hash.get(_ERROR_FIELD) or None,
+            warnings=_read_warnings(run_paths),
             completed_entity_count=_count_completed_entities(run_paths),
             total_row_count=total_row_count,
         )
@@ -360,15 +361,7 @@ class RunRegistry:
 
 
 def _count_completed_entities(run_paths: RunPaths) -> int:
-    """Return the number of entities listed in the run's checkpoint file.
-
-    Args:
-        run_paths (RunPaths): The run's on-disk layout.
-
-    Returns:
-        int: Count of entity ids in ``completed_entities.json``; ``0``
-        when the file does not yet exist or is malformed.
-    """
+    """Return the number of entities listed in the run's checkpoint file."""
     completed_path = run_paths.completed_entities_path
     if not completed_path.exists():
         return 0
@@ -381,6 +374,19 @@ def _count_completed_entities(run_paths: RunPaths) -> int:
     if not isinstance(completed, list):
         return 0
     return len(completed)
+
+
+def _read_warnings(run_paths: RunPaths) -> list[str]:
+    """Read the warnings file for a run, returning an empty list if absent."""
+    warnings_path = run_paths.checkpoint_dir / "warnings.json"
+    if not warnings_path.exists():
+        return []
+    try:
+        with warnings_path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
 
 
 def build_run_registry(

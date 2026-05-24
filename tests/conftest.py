@@ -353,7 +353,7 @@ def valid_flow_body(fixtures_dir: Path) -> Dict[str, Any]:
                 "id": "proc_first",
                 "type": "processor",
                 "config": {
-                    "step_type": "conversation_summary_first",
+                    "processor_type": "conversation_summary_first",
                     "unit": "document",
                     "group_by": "entity",
                 },
@@ -362,7 +362,7 @@ def valid_flow_body(fixtures_dir: Path) -> Dict[str, Any]:
                 "id": "proc_update",
                 "type": "processor",
                 "config": {
-                    "step_type": "conversation_summary_update",
+                    "processor_type": "conversation_summary_update",
                     "unit": "document",
                     "group_by": "entity",
                 },

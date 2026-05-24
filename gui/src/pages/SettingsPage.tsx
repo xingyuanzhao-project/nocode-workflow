@@ -27,10 +27,11 @@ import { Button } from "@/components/ui/button";
 const CLOUD_PROVIDER_LABELS: Record<ProviderName, string> = {
   openrouter: "OpenRouter",
   openai: "OpenAI",
+  claude: "Claude",
+  google: "Google",
 };
 
 const LOCAL_PROVIDER_LABELS: Record<LocalProviderName, string> = {
-  local_vllm: "Local vLLM",
   ollama: "Ollama",
   vllm: "vLLM",
   llama_cpp: "llama.cpp",
@@ -85,7 +86,7 @@ export default function SettingsPage(): JSX.Element {
 
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Local endpoints
+              Local Server
             </h2>
             <p className="mb-3 text-xs text-muted-foreground">
               Connect to Ollama, vLLM, or llama.cpp servers running on
@@ -220,7 +221,9 @@ function LocalEndpointRow({
   endpoint_item,
   on_saved,
 }: LocalEndpointRowProps): JSX.Element {
-  const [url_input, set_url_input] = useState(endpoint_item.api_base);
+  const [url_input, set_url_input] = useState(
+    endpoint_item.configured ? endpoint_item.api_base : "",
+  );
   const [test_result, set_test_result] =
     useState<LocalEndpointTestResponse | null>(null);
 
@@ -261,7 +264,7 @@ function LocalEndpointRow({
         <input
           type="text"
           className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground"
-          placeholder="http://localhost:8000/v1"
+          placeholder={endpoint_item.api_base}
           value={url_input}
           onChange={(event) => {
             set_url_input(event.target.value);
@@ -313,16 +316,11 @@ function StatusBadge({
   configured,
 }: {
   configured: boolean;
-}): JSX.Element {
+}): JSX.Element | null {
+  if (!configured) return null;
   return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-        configured
-          ? "bg-green-100 text-green-700"
-          : "bg-muted text-muted-foreground"
-      }`}
-    >
-      {configured ? "Configured" : "Default"}
+    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+      Configured
     </span>
   );
 }

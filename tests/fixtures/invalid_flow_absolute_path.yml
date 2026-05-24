@@ -15,7 +15,7 @@ flow:
     input_csv: /absolute/path/to/data.csv
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
-  steps:
+  processors:
     - type: single_summary
       unit: row
   output:

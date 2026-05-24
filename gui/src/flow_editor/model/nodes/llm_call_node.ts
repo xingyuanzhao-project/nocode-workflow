@@ -12,7 +12,8 @@ import { BaseNode, type NodeCategory, type NodePosition } from "../base_node";
 export type ProviderName =
   | "openrouter"
   | "openai"
-  | "local_vllm"
+  | "claude"
+  | "google"
   | "ollama"
   | "vllm"
   | "llama_cpp";
@@ -20,7 +21,8 @@ export type ProviderName =
 const ALLOWED_PROVIDERS: ReadonlySet<ProviderName> = new Set([
   "openrouter",
   "openai",
-  "local_vllm",
+  "claude",
+  "google",
   "ollama",
   "vllm",
   "llama_cpp",
@@ -97,10 +99,12 @@ export class LLMCallNode extends BaseNode {
   private static readonly PROVIDER_DEFAULT_ENV_VAR: Record<string, string> = {
     openrouter: "OPENROUTER_API_KEY",
     openai: "OPENAI_API_KEY",
+    claude: "ANTHROPIC_API_KEY",
+    google: "GOOGLE_API_KEY",
   };
 
   private static readonly LOCAL_PROVIDERS: ReadonlySet<string> = new Set([
-    "local_vllm", "ollama", "vllm", "llama_cpp",
+    "ollama", "vllm", "llama_cpp",
   ]);
 
   emit_config(): Record<string, unknown> {

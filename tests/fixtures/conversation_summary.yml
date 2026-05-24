@@ -24,11 +24,11 @@ flow:
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
 
-  steps:
-    - type: conversation_summary_first
+  processors:
+    - type: processor
       unit: row
 
-    - type: conversation_summary_update
+    - type: processor
       unit: row
 
   async:

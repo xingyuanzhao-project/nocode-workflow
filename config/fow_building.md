@@ -10,7 +10,7 @@ trigger: Whenever you build or modify a flow, read this guide first; When ever f
 
 # Flow Building
 
-Use the graph format only. Do not use the old flat `resources/data/steps/output/...` shape.
+Use the graph format only. Do not use the old flat `resources/data/processors/output/...` shape.
 
 ## Top-Level Shape
 
@@ -58,7 +58,7 @@ Notes:
 
 ### `processor`
 
-Purpose: one generic LLM-backed processing step.
+Purpose: one generic LLM-backed processor.
 
 Use:
 
@@ -78,10 +78,10 @@ config:
 Notes:
 
 - For this project, use `type: processor`
-- Do not use legacy step types like `single_summary`, `classification`, `label_extraction`, `label_summary`, `conversation_summary_first`, or `conversation_summary_update`
+- Do not use legacy processor types like `single_summary`, `classification`, `label_extraction`, `label_summary`, `conversation_summary_first`, or `conversation_summary_update`
 - Keep `unit: row`
-- Put task meaning in `prompt` and `io_schema`, not in the step type
-- `step_type` may exist in config, but today the valid runtime value is still `processor`
+- Put task meaning in `prompt` and `io_schema`, not in the processor type
+- `processor_type` in config selects the registered processor type; the valid runtime value is `processor`
 
 Prompt rules:
 
@@ -226,7 +226,7 @@ settings:
 Notes:
 
 - `processing_limit` is optional
-- `prompts` is flow-level, not per-step
+- `prompts` is flow-level, not per-processor
 - If `prompts` does not exist, the runner continues, but `prompts_ref` lookups will not work
 
 ## Path Rules
@@ -252,8 +252,8 @@ When creating a new flow:
 1. Create one input node.
 2. Create one or more `processor` nodes.
 3. Connect each processor to one `llm_call` node.
-4. Add a `codebook` node only if the step needs taxonomy data.
+4. Add a `codebook` node only if the processor needs taxonomy data.
 5. Create one output node.
 6. Add `feedforward` edges to define order.
-7. Put step behavior in `prompt` and `io_schema`.
+7. Put processor behavior in `prompt` and `io_schema`.
 8. Keep paths relative and output fields aligned with schema output.

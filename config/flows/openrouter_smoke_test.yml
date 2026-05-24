@@ -46,7 +46,7 @@ flow:
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
 
-  steps:
+  processors:
     - type: conversation_summary_first
       unit: row
 

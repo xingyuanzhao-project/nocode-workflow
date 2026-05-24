@@ -77,8 +77,52 @@ _OPENAI_MODELS_URL: str = "https://api.openai.com/v1/models"
 """Upstream endpoint for OpenAI's authenticated model catalogue."""
 
 
+_ANTHROPIC_MODELS_URL: str = "https://api.anthropic.com/v1/models"
+"""Upstream endpoint for Anthropic's model catalogue."""
+
+
+_GOOGLE_MODELS_URL: str = (
+    "https://generativelanguage.googleapis.com/v1beta/models"
+)
+"""Upstream endpoint for Google's Gemini model catalogue."""
+
+
 _OPENAI_API_KEY_ENV_VAR: str = "OPENAI_API_KEY"
 """Environment variable consulted for the OpenAI Bearer token."""
+
+_ANTHROPIC_API_KEY_ENV_VAR: str = "ANTHROPIC_API_KEY"
+"""Environment variable consulted for the Anthropic API key."""
+
+_GOOGLE_API_KEY_ENV_VAR: str = "GOOGLE_API_KEY"
+"""Environment variable consulted for the Google API key."""
+
+
+_LOCAL_PROVIDER_NAMES = frozenset({
+    ProviderName.OLLAMA,
+    ProviderName.VLLM,
+    ProviderName.LLAMA_CPP,
+})
+"""Provider enum members that are local servers."""
+
+
+def _get_local_endpoint_url(provider_name: str) -> str:
+    """Return the configured base URL for a local provider.
+
+    Reads from ``os.environ`` (persisted to ``.env`` by the Settings
+    page).  Raises :class:`ValueError` when no URL is configured so
+    callers get a clear error instead of a silent wrong-port request.
+    """
+    from server.routes.settings import LOCAL_ENDPOINT_ENV_VARS
+
+    env_var = LOCAL_ENDPOINT_ENV_VARS[provider_name]
+    env_value = os.environ.get(env_var, "").strip()
+    if not env_value:
+        raise ValueError(
+            f"No endpoint URL configured for local provider "
+            f"{provider_name!r}. Set it in the API Keys page or add "
+            f"{env_var!r} to the project-root .env file."
+        )
+    return env_value.rstrip("/")
 
 
 class ModelListProxy:
@@ -211,6 +255,31 @@ class ModelListProxy:
                 )
             request_headers = {"Authorization": f"Bearer {api_key}"}
             request_url = _OPENAI_MODELS_URL
+        elif provider is ProviderName.CLAUDE:
+            api_key = os.environ.get(_ANTHROPIC_API_KEY_ENV_VAR, "").strip()
+            if not api_key:
+                raise ValueError(
+                    f"{_ANTHROPIC_API_KEY_ENV_VAR} is not set; cannot fetch "
+                    "the Anthropic model list."
+                )
+            request_headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
+            request_url = _ANTHROPIC_MODELS_URL
+        elif provider is ProviderName.GOOGLE:
+            api_key = os.environ.get(_GOOGLE_API_KEY_ENV_VAR, "").strip()
+            if not api_key:
+                raise ValueError(
+                    f"{_GOOGLE_API_KEY_ENV_VAR} is not set; cannot fetch "
+                    "the Google model list."
+                )
+            request_headers = {}
+            request_url = f"{_GOOGLE_MODELS_URL}?key={api_key}"
+        elif provider in _LOCAL_PROVIDER_NAMES:
+            local_base = _get_local_endpoint_url(provider.value)
+            request_headers = {"Authorization": "Bearer dummy"}
+            request_url = f"{local_base}/models"
         else:  # pragma: no cover - exhaustiveness guard
             raise ValueError(f"Unknown provider: {provider}")
 
@@ -241,11 +310,6 @@ def _normalise_models(
 ) -> List[ProviderModel]:
     """Project the upstream JSON into :class:`ProviderModel` entries.
 
-    Both OpenRouter and OpenAI wrap their lists in a top-level ``data``
-    array, so the dispatch on ``provider`` is only about which fields
-    map to :class:`ProviderModel.label`, ``description``, and
-    ``context_length``.
-
     Args:
         provider (ProviderName): Which provider the body came from.
         response_body (Dict[str, Any]): Decoded upstream JSON.
@@ -254,6 +318,9 @@ def _normalise_models(
         List[ProviderModel]: Normalised model entries sorted by
         :attr:`ProviderModel.id` so the GUI renders deterministically.
     """
+    if provider is ProviderName.GOOGLE:
+        return _normalise_google_models(response_body)
+
     raw_entries = response_body.get("data")
     if not isinstance(raw_entries, list):
         return []
@@ -279,10 +346,62 @@ def _normalise_models(
                 if isinstance(raw_context_length, (int, float))
                 else None
             )
-        else:  # ProviderName.OPENAI
+        elif provider is ProviderName.CLAUDE:
+            display_label = str(raw_entry.get("display_name", model_id)).strip() or model_id
+            description_text = None
+            raw_context_length = raw_entry.get("context_window")
+            context_length_int = (
+                int(raw_context_length)
+                if isinstance(raw_context_length, (int, float))
+                else None
+            )
+        else:
             display_label = model_id
             description_text = None
             context_length_int = None
+        normalised.append(
+            ProviderModel(
+                id=model_id,
+                label=display_label,
+                description=description_text,
+                context_length=context_length_int,
+            )
+        )
+    normalised.sort(key=lambda entry: entry.id)
+    return normalised
+
+
+def _normalise_google_models(response_body: Dict[str, Any]) -> List[ProviderModel]:
+    """Normalise Google's model list response.
+
+    Google returns ``{"models": [{"name": "models/gemini-pro", ...}]}``
+    rather than the ``{"data": [...]}`` shape used by other providers.
+    """
+    raw_entries = response_body.get("models")
+    if not isinstance(raw_entries, list):
+        return []
+
+    normalised: List[ProviderModel] = []
+    for raw_entry in raw_entries:
+        if not isinstance(raw_entry, dict):
+            continue
+        raw_name = str(raw_entry.get("name", "")).strip()
+        if not raw_name:
+            continue
+        model_id = raw_name.removeprefix("models/")
+        display_label = str(raw_entry.get("displayName", model_id)).strip() or model_id
+        description_value: object = raw_entry.get("description")
+        description_text = (
+            str(description_value).strip()
+            if isinstance(description_value, str)
+            else None
+        )
+        raw_context_length = raw_entry.get("inputTokenLimit")
+        context_length_int = (
+            int(raw_context_length)
+            if isinstance(raw_context_length, (int, float))
+            else None
+        )
         normalised.append(
             ProviderModel(
                 id=model_id,

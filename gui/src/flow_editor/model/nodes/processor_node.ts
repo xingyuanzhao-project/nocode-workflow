@@ -89,10 +89,10 @@ export class ProcessorNode extends BaseNode {
         incoming.output && typeof incoming.output === "object"
           ? (incoming.output as Record<string, unknown>)
           : {};
-      const output_block: Record<string, { type: string }> = {};
+      const output_block: Record<string, Record<string, unknown>> = {};
       for (const [key, value] of Object.entries(raw_output)) {
         if (value && typeof value === "object" && "type" in (value as Record<string, unknown>)) {
-          output_block[key] = { type: String((value as Record<string, unknown>).type) };
+          output_block[key] = { ...(value as Record<string, unknown>) };
         } else if (typeof value === "string") {
           output_block[key] = { type: value };
         } else {

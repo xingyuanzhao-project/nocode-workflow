@@ -88,46 +88,6 @@ def get_deep_size(obj: Any, seen=None) -> int:
     return size
 
 
-def is_informative_summary(summary: Optional[str]) -> bool:
-    """
-    Determines whether a summary string should be treated as containing
-    victim-relevant information, as opposed to a generic "no information"
-    placeholder.
-
-    This helper centralizes the normalization and sentinel matching logic so
-    that multi-turn runners can make consistent decisions about when to update
-    the running summary.
-
-    Args:
-        summary (Optional[str]): The summary text returned by the model.
-
-    Returns:
-        bool: True if the summary is informative, False if it represents a
-        no-information result.
-    """
-    if summary is None:
-        return False
-
-    normalized = summary.strip().lower()
-    if not normalized:
-        return False
-
-    # Strip common trailing punctuation for robust equality checks.
-    normalized = normalized.strip(" .!?:;\"'")
-
-    # Canonical "no information" markers used across the pipeline.
-    no_info_values = {
-        "no relevant information found",
-        "no information",
-        "no info",
-        "sin informacion",
-        "sin información",
-        "false",
-    }
-
-    return normalized not in no_info_values
-
-
 def check_gpu_info(logger: logging.Logger):
     """Query ``nvidia-smi`` for GPU hardware details and log each device.
 

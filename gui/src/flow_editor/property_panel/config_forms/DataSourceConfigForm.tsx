@@ -38,21 +38,21 @@ export function DataSourceConfigForm({
     staleTime: 30_000,
   });
 
-  const is_csv = node_type_id !== "json_input";
+  const is_json = node_type_id === "json_input";
 
   const columns_query = useQuery({
-    queryKey: ["csv-columns", selected_path],
+    queryKey: ["file-fields", selected_path],
     queryFn: () => fetchColumnHeaders(selected_path),
-    enabled: is_csv && selected_path.length > 0,
+    enabled: selected_path.length > 0,
     staleTime: 60_000,
   });
 
-  const csv_columns = columns_query.data?.columns ?? [];
+  const available_columns = columns_query.data?.columns ?? [];
 
   const allowed_extensions = useMemo(() => {
-    if (node_type_id === "json_input") return new Set([".json", ".jsonl"]);
+    if (is_json) return new Set([".json", ".jsonl"]);
     return new Set([".csv"]);
-  }, [node_type_id]);
+  }, [is_json]);
 
   const available_files = useMemo(() => {
     const all = files_query.data?.files ?? [];
@@ -62,23 +62,7 @@ export function DataSourceConfigForm({
     });
   }, [files_query.data, allowed_extensions]);
 
-  const display_files = useMemo(() => {
-    if (selected_path.length === 0) {
-      return available_files;
-    }
-    if (available_files.some((file) => file.stored_path === selected_path)) {
-      return available_files;
-    }
-    return [
-      {
-        filename: selected_path.split("/").pop() ?? selected_path,
-        stored_path: selected_path,
-        row_count: null,
-        source: "selected",
-      },
-      ...available_files,
-    ];
-  }, [available_files, selected_path]);
+  const display_files = available_files;
 
   const input_columns = read_input_columns(node);
 
@@ -117,8 +101,10 @@ export function DataSourceConfigForm({
     [input_columns, update_columns],
   );
 
-  const field_label =
-    node_type_id === "json_input" ? "Field Name" : "Column Name";
+  const section_label = is_json ? "Input Fields" : "Input Columns";
+  const field_label = is_json ? "Field Name" : "Column Name";
+  const placeholder = is_json ? "Select field..." : "Select column...";
+  const add_label = is_json ? "+ Add Field" : "+ Add Column";
 
   return (
     <div className="flex flex-col gap-4 text-xs">
@@ -146,7 +132,7 @@ export function DataSourceConfigForm({
       </label>
 
       <div className="flex flex-col gap-2">
-        <span className="font-medium">Input Columns</span>
+        <span className="font-medium">{section_label}</span>
 
         {input_columns.map((col_name, index) => (
           <div key={index} className="flex items-end gap-1">
@@ -154,28 +140,18 @@ export function DataSourceConfigForm({
               {index === 0 && (
                 <span className="text-muted-foreground">{field_label}</span>
               )}
-              {is_csv && csv_columns.length > 0 ? (
-                <select
-                  className="rounded-md border bg-background px-2 py-1 text-sm"
-                  value={col_name}
-                  onChange={(e) => on_column_value_change(index, e.target.value)}
-                >
-                  <option value="">Select column...</option>
-                  {csv_columns.map((col) => (
-                    <option key={col} value={col}>
-                      {col}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className="rounded-md border bg-background px-2 py-1 text-sm"
-                  placeholder="e.g. my_text_col"
-                  value={col_name}
-                  onChange={(e) => on_column_value_change(index, e.target.value)}
-                />
-              )}
+              <select
+                className="rounded-md border bg-background px-2 py-1 text-sm"
+                value={col_name}
+                onChange={(e) => on_column_value_change(index, e.target.value)}
+              >
+                <option value="">{placeholder}</option>
+                {available_columns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
             </label>
             <button
               type="button"
@@ -193,10 +169,10 @@ export function DataSourceConfigForm({
           className="self-start rounded-md border px-2 py-1 text-sm hover:bg-muted"
           onClick={on_add_column}
         >
-          + Add Column
+          {add_label}
         </button>
         <span className="text-muted-foreground">
-          Selected columns will be passed to the processor as input fields.
+          Selected {is_json ? "fields" : "columns"} will be passed to the processor as input.
         </span>
       </div>
     </div>

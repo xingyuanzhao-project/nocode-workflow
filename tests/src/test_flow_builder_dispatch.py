@@ -20,7 +20,7 @@ import pytest
 import yaml
 
 from src.flow_builder import _Checkpoint, _build_processor_runtime_config
-from src.flow_loader import LLMResource, LoggingConfig, StepConfig
+from src.flow_loader import LLMResource, LoggingConfig, ProcessorConfig
 from src.io_schema import IOSchema
 from src.node_registry import NodeTypeEntry, NodeTypeRegistry
 from src.prompt_resolver import (
@@ -143,7 +143,7 @@ class TestBaseRuntimeConfig:
 
 class TestStepLevelResolution:
     def test_registry_defaults_applied_when_step_has_no_overrides(self) -> None:
-        step = StepConfig(type="single_summary", unit="row")
+        step = ProcessorConfig.model_construct(type="single_summary", unit="row")
         config = _build_processor_runtime_config(
             resource=_default_llm_resource(),
             prompts_payload=_prompts_payload(),
@@ -161,7 +161,7 @@ class TestStepLevelResolution:
 
     def test_step_io_schema_override_wins_over_registry_default(self) -> None:
         override = IOSchema(output={"custom": {"type": "string"}})
-        step = StepConfig(type="single_summary", unit="row", io_schema=override)
+        step = ProcessorConfig.model_construct(type="single_summary", unit="row", io_schema=override)
         config = _build_processor_runtime_config(
             resource=_default_llm_resource(),
             prompts_payload=_prompts_payload(),
@@ -172,7 +172,7 @@ class TestStepLevelResolution:
         assert config["io_schema_resolved"].output == {"custom": {"type": "string"}}
 
     def test_step_prompt_overrides_append_to_registry_default(self) -> None:
-        step = StepConfig(
+        step = ProcessorConfig.model_construct(
             type="single_summary",
             unit="row",
             prompts_ref="summary",
@@ -191,10 +191,13 @@ class TestStepLevelResolution:
         assert resolved_prompt.instructions == ["base instruction", "extra"]
 
     def test_inline_prompt_replaces_registry_default(self) -> None:
-        step = StepConfig(
+        step = ProcessorConfig.model_construct(
             type="single_summary",
             unit="row",
             prompt=PromptInline(instructions=["inline only"]),
+            prompts_ref=None,
+            prompt_overrides=None,
+            io_schema=None,
         )
         config = _build_processor_runtime_config(
             resource=_default_llm_resource(),
@@ -208,7 +211,7 @@ class TestStepLevelResolution:
         assert resolved_prompt.output_format is None
 
     def test_step_without_registry_raises(self) -> None:
-        step = StepConfig(type="single_summary", unit="row")
+        step = ProcessorConfig.model_construct(type="single_summary", unit="row")
         with pytest.raises(ValueError, match="requires 'registry'"):
             _build_processor_runtime_config(
                 resource=_default_llm_resource(),
@@ -217,8 +220,8 @@ class TestStepLevelResolution:
                 step=step,
             )
 
-    def test_unknown_step_type_raises_key_error(self) -> None:
-        step = StepConfig.model_construct(type="not_registered", unit="row")
+    def test_unknown_processor_type_raises_key_error(self) -> None:
+        step = ProcessorConfig.model_construct(type="not_registered", unit="row")
         with pytest.raises(KeyError):
             _build_processor_runtime_config(
                 resource=_default_llm_resource(),

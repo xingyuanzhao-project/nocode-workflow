@@ -15,13 +15,28 @@ from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
-from src.format_adapter import adapt_request_kwargs, normalize_llm_response
+from src.format_adapter import normalize_llm_response, normalize_request_kwargs
 from src.io_schema import IOSchema, to_response_format
 
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _MULTI_SPACE_RE = re.compile(r"[ \t]+")
 _MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
+
+
+class ParseWarning(Exception):
+    """Raised when LLM output could not be parsed into valid JSON.
+
+    The row is still returned with empty values, but the caller should
+    emit a visible warning rather than silently marking success.
+    """
+
+    def __init__(self, row_index: int, model_name: str, raw_content: str) -> None:
+        self.row_index = row_index
+        self.raw_content_preview = raw_content[:200]
+        super().__init__(
+            f"Row {row_index}: model={model_name} returned unparseable response"
+        )
 
 
 class GenericProcessor:
@@ -36,18 +51,19 @@ class GenericProcessor:
         self,
         client: AsyncOpenAI,
         io_schema: IOSchema,
-        instructions: List[str],
+        system_message: str,
         model_name: str,
+        provider: str,
         logger: logging.Logger,
         *,
-        temperature: float = 0.3,
-        max_tokens: int = 4096,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
         llm_semaphore: Optional[asyncio.Semaphore] = None,
     ) -> None:
         self.client = client
         self.io_schema = io_schema
-        self.instructions = instructions
         self.model_name = model_name
+        self.provider = provider
         self.logger = logger
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -55,7 +71,7 @@ class GenericProcessor:
 
         self._output_keys: List[str] = list(io_schema.output.keys())
         self._response_format = to_response_format(io_schema, "processor_output")
-        self._system_message = "\n".join(instructions)
+        self._system_message = system_message
 
     def clean_text(self, raw: str) -> str:
         """Strip HTML tags, fix encoding artifacts, collapse whitespace."""
@@ -74,8 +90,9 @@ class GenericProcessor:
             input_fields: Column-name → cleaned-value mapping for this row.
             row_index: Positional row index for logging.
 
-        On error or parse failure, returns a dict with all output keys
-        set to empty string and logs the error.
+        Raises:
+            ParseWarning: If the LLM response cannot be parsed as valid JSON.
+            Exception: If the LLM API call itself fails.
         """
         if len(input_fields) == 1:
             user_content = next(iter(input_fields.values()))
@@ -96,8 +113,7 @@ class GenericProcessor:
             "max_tokens": self.max_tokens,
             "response_format": self._response_format,
         }
-
-        kwargs = adapt_request_kwargs(self.model_name, kwargs)
+        kwargs = normalize_request_kwargs(self.provider, kwargs)
 
         self.logger.info(
             "[LLM INPUT] model=%s row=%d messages=%s",
@@ -123,14 +139,17 @@ class GenericProcessor:
             result, success = normalize_llm_response(raw_content, self._output_keys)
             if not success:
                 self.logger.warning(
-                    "[LLM PARSE] model=%s row=%d normalization used fallback",
+                    "[LLM PARSE] model=%s row=%d failed to parse response",
                     self.model_name, row_index,
                 )
+                raise ParseWarning(row_index, self.model_name, raw_content)
             return result
 
+        except ParseWarning:
+            raise
         except Exception as exc:
             self.logger.error(
                 "[LLM ERROR] model=%s row=%d error=%s",
                 self.model_name, row_index, str(exc),
             )
-            return {key: "" for key in self._output_keys}
+            raise

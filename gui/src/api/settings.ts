@@ -12,11 +12,12 @@ import { requestJson } from "./client";
 const providerNameSchema = z.union([
   z.literal("openrouter"),
   z.literal("openai"),
+  z.literal("claude"),
+  z.literal("google"),
 ]);
 export type ProviderName = z.infer<typeof providerNameSchema>;
 
 const localProviderNameSchema = z.union([
-  z.literal("local_vllm"),
   z.literal("ollama"),
   z.literal("vllm"),
   z.literal("llama_cpp"),

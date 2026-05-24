@@ -26,7 +26,7 @@ The Pydantic models declared here split into two layers:
   :class:`FlowSettings`, :class:`FlowDocument`. Validates the on-disk
   YAML before any compilation runs.
 - *Runtime schema* — :class:`FlowConfig`, :class:`LLMResource`,
-  :class:`DataConfig`, :class:`StepConfig`, :class:`OutputConfig`,
+  :class:`DataConfig`, :class:`ProcessorConfig`, :class:`OutputConfig`,
   :class:`LoggingConfig`, :class:`DisplayConfig`, :class:`AsyncConfig`.
   The compiler builds these programmatically;
   :class:`FlowConfig` is the only object :mod:`src.flow_builder` reads.
@@ -51,18 +51,15 @@ Contents and relationships
   display options.
 - :class:`LLMResource` — one named LLM provider entry under
   ``flow.resources[*]``. Each resource is addressable by ``id`` and is
-  referenced by :attr:`StepConfig.llm` when a step needs a non-default LLM.
+  referenced by :attr:`ProcessorConfig.llm` when a processor needs a non-default LLM.
 - (Removed) ``LLMShorthand`` — was the single-LLM sugar block for the
   old flat format. No code path produces it in the node-edge schema.
 - :class:`DataConfig` — the ``flow.data:`` block pointing at the input
   data file.
-- :class:`StepConfig` — a single processing step. ``type`` selects the
-  runtime behaviour; the set of accepted values is sourced from the
-  :mod:`src.node_registry` registry (``config/node_types.yaml``) rather
-  than from a hardcoded list. Optional fields let the user override the
-  step's LLM-facing I/O schema (:attr:`StepConfig.io_schema`) and the
-  effective prompt (:attr:`StepConfig.prompt`,
-  :attr:`StepConfig.prompts_ref`, :attr:`StepConfig.prompt_overrides`).
+- :class:`ProcessorConfig` — one processor in the pipeline. ``type``
+  selects the runtime behaviour; the set of accepted values is sourced
+  from the :mod:`src.node_registry` registry (``config/node_types.yaml``)
+  rather than from a hardcoded list.
 - :class:`AsyncConfig`, :class:`OutputConfig`, :class:`LoggingConfig`, and
   :class:`DisplayConfig` — the remaining runtime sections that control
   concurrency, where results are written, what is logged, and whether
@@ -74,7 +71,7 @@ How the rest of the system uses this module
 :func:`src.flow_builder.build_flow` calls
 :meth:`FlowSchema.load_from_path` to obtain a validated schema, then walks
 :attr:`FlowConfig.resources` to construct OpenAI-compatible clients, walks
-:attr:`FlowConfig.steps` to instantiate the matching processor classes from
+:attr:`FlowConfig.processors` to instantiate processor classes from
 :mod:`src.processors`, and uses :attr:`FlowConfig.data`,
 :attr:`FlowConfig.async_config`, and :attr:`FlowConfig.output` to drive the
 runner loops.
@@ -84,16 +81,16 @@ Invariants enforced by this module
 
 - At least one :class:`LLMResource` exists after normalisation, and every
   resource has a unique ``id``.
-- Every :attr:`StepConfig.llm` string resolves to an existing resource
-  ``id``. Steps that omit ``llm`` are wired to the resource with ``id =
-  "default"`` by the builder.
-- :attr:`StepConfig.type` is one of the ids whose ``category`` is
+- Every :attr:`ProcessorConfig.llm` string resolves to an existing resource
+  ``id``. Processors that omit ``llm`` are wired to the resource with
+  ``id = "default"`` by the builder.
+- :attr:`ProcessorConfig.type` is one of the ids whose ``category`` is
   ``processor`` in :mod:`src.node_registry`'s default registry.
-- :attr:`StepConfig.unit` must be ``"row"``.
-- Inline :attr:`StepConfig.prompt` and :attr:`StepConfig.prompts_ref`
-  are mutually exclusive; :attr:`StepConfig.prompt_overrides` requires
-  :attr:`StepConfig.prompts_ref`. Enforced by
-  :meth:`StepConfig.validate_prompt_sources`.
+- :attr:`ProcessorConfig.unit` must be ``"row"``.
+- Inline :attr:`ProcessorConfig.prompt` and
+  :attr:`ProcessorConfig.prompts_ref` are mutually exclusive;
+  :attr:`ProcessorConfig.prompt_overrides` requires
+  :attr:`ProcessorConfig.prompts_ref`.
 - :attr:`LLMResource.api_key_env` and :attr:`LLMResource.api_key` are
   mutually exclusive in the YAML: the builder resolves ``api_key_env``
   against ``os.environ`` at startup and the runtime copy of the resource
@@ -109,27 +106,27 @@ import yaml
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.io_schema import IOSchema
-from src.node_registry import get_processor_step_types
+from src.node_registry import get_processor_types
 from src.prompt_resolver import PromptInline, PromptOverride
 
 
-def _registered_processor_step_types() -> FrozenSet[str]:
-    """Return the current set of processor step-type ids from the default registry.
-
-    The indirection avoids baking the registry's contents into a module
-    constant, which would otherwise freeze the set at import time and
-    make tests that patch :data:`src.node_registry.DEFAULT_REGISTRY_PATH`
-    harder to write.
+def _registered_processor_types() -> FrozenSet[str]:
+    """Return the registered processor type ids from the default registry.
 
     Returns:
-        FrozenSet[str]: The processor step-type ids declared in
+        FrozenSet[str]: The processor type ids declared in
         :mod:`src.node_registry`'s default registry.
     """
-    return get_processor_step_types()
+    return get_processor_types()
 
 
 UNIT_VALUES: frozenset[str] = frozenset({"row"})
-"""Registered step ``unit`` values accepted by :class:`StepConfig`."""
+"""Registered ``unit`` values accepted by :class:`ProcessorConfig`."""
+
+VALID_ADJACENT_UNIT_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
+    {("row", "row")}
+)
+"""Valid (prev_unit, next_unit) pairs for adjacent processors."""
 
 
 SUPPORTED_INPUT_EXTENSIONS: frozenset[str] = frozenset({".csv", ".json", ".jsonl"})
@@ -142,30 +139,29 @@ extension: ``.csv`` → :func:`pandas.read_csv`, ``.json`` →
 
 
 PROVIDER_VALUES: frozenset[str] = frozenset({
-    "local_vllm", "openrouter", "openai", "ollama", "vllm", "llama_cpp",
+    "openrouter", "openai", "claude", "google",
+    "ollama", "vllm", "llama_cpp",
 })
 """Registered provider values accepted by :class:`LLMResource`.
 
-Cloud providers (``openrouter``, ``openai``) require a real API key
-via ``api_key_env``. Local providers (``local_vllm``, ``ollama``,
-``vllm``, ``llama_cpp``) default to ``"dummy"`` when no key is set."""
+Cloud providers (``openrouter``, ``openai``, ``claude``, ``google``)
+require a real API key via ``api_key_env``. Local providers
+(``ollama``, ``vllm``, ``llama_cpp``) default to ``"dummy"`` when no
+key is set."""
 
 
-PROVIDER_DEFAULT_API_BASE: Dict[str, str] = {
-    "local_vllm": "http://localhost:8000/v1",
-    "ollama": "http://localhost:11434/v1",
-    "vllm": "http://localhost:8000/v1",
-    "llama_cpp": "http://localhost:8080/v1",
-    "openrouter": "https://openrouter.ai/api/v1",
-    "openai": "https://api.openai.com/v1",
-}
+
+
+"""Well-known ``api_base`` URLs for cloud providers only.
+
+Local providers (``ollama``, ``vllm``, ``llama_cpp``) are excluded —
+their endpoint is resolved exclusively from the environment variable
+set by the API Keys page."""
 
 LOCAL_PROVIDERS: frozenset[str] = frozenset({
-    "local_vllm", "ollama", "vllm", "llama_cpp",
+    "ollama", "vllm", "llama_cpp",
 })
 """Providers that run on localhost and don't require a real API key."""
-"""Default ``api_base`` per provider. Used by the builder when the YAML
-omits ``api_base`` on a resource."""
 
 
 def _validate_project_relative_posix_path(value: str, field_name: str) -> str:
@@ -232,20 +228,17 @@ class LLMResource(BaseModel):
 
     Attributes:
         id (str): Unique identifier referenced by
-            :attr:`StepConfig.llm`. The shorthand block is normalised into a
-            resource with ``id = "default"``.
+            :attr:`ProcessorConfig.llm`.
         type (Literal["llm_provider"]): Discriminator kept for future
             resource kinds. Always ``"llm_provider"`` in Phase 1.
-        provider (str): One of :data:`PROVIDER_VALUES`. Selects the default
-            ``api_base`` via :data:`PROVIDER_DEFAULT_API_BASE` when
-            ``api_base`` is omitted.
+        provider (str): One of :data:`PROVIDER_VALUES`.
         model (str): Model identifier sent to the endpoint as
             ``chat.completions.create(model=...)``.
         api_base (Optional[str]): OpenAI-compatible base URL. Defaults to
             the provider-specific base URL when omitted.
-        api_key (Optional[str]): Literal API key. Only used for
-            ``local_vllm`` where the key is ``"dummy"``. For hosted
-            providers, use :attr:`api_key_env` instead.
+        api_key (Optional[str]): Literal API key. Local providers use
+            ``"dummy"`` by default. For hosted providers, use
+            :attr:`api_key_env` instead.
         api_key_env (Optional[str]): Name of the environment variable that
             holds the real API key. Resolved by the builder from the
             project-root ``.env`` file. Mutually exclusive with
@@ -369,40 +362,32 @@ class DataConfig(BaseModel):
         return validated
 
 
-class StepConfig(BaseModel):
-    """One processing step in :attr:`FlowConfig.steps`.
+class ProcessorConfig(BaseModel):
+    """One processor in :attr:`FlowConfig.processors`.
 
     ``type`` selects the runtime behaviour. Accepted values are the ids
     whose category is ``processor`` in :mod:`src.node_registry`'s
     default registry (``config/node_types.yaml``). The registry also
-    supplies each step's default I/O schema and default prompt
-    reference; users override those per step through the optional
+    supplies each processor's default I/O schema and default prompt
+    reference; users override those per processor through the optional
     :attr:`io_schema`, :attr:`prompt`, :attr:`prompts_ref`, and
     :attr:`prompt_overrides` fields.
 
-    Optional fields reserved for specific step types:
-
-    - ``mode`` applies to ``label_summary`` (``hybrid`` or ``full_async``).
-    - ``keys`` applies to ``classification`` (``"all"`` or a list of
-      taxonomy keys).
-
     Attributes:
-        type (str): Registered processor step-type id. Looked up in
+        type (str): Registered processor type id. Looked up in
             :mod:`src.node_registry`.
-        unit (str): Always ``"row"``. Kept for YAML compatibility.
+        unit (str): Always ``"row"``.
         group_by (Optional[str]): Deprecated, ignored.
-        llm (Optional[str]): Resource ``id`` this step uses. ``None`` means
-            the builder wires the step to the resource with
+        llm (Optional[str]): Resource ``id`` this processor uses. ``None``
+            means the builder wires it to the resource with
             ``id = "default"``.
-        mode (Optional[str]): ``hybrid`` or ``full_async`` for
-            ``label_summary``.
-        keys (Optional[Any]): ``"all"`` or a list of taxonomy keys for
-            ``classification``.
-        io_schema (Optional[IOSchema]): Per-step override of the LLM
+        mode (Optional[str]): Reserved for future use.
+        keys (Optional[Any]): Reserved for future use.
+        io_schema (Optional[IOSchema]): Per-processor override of the LLM
             I/O schema. When set, :mod:`src.flow_builder` converts its
             ``output`` dict into the OpenAI ``response_format`` via
             :func:`src.io_schema.to_response_format` and bypasses the
-            registry default for this step only.
+            registry default for this processor only.
         prompts_ref (Optional[str]): Pointer into the flow-level
             ``config/prompts.json``. Accepts both the bare-key form
             (``"summary"``) and the path-qualified form
@@ -415,14 +400,6 @@ class StepConfig(BaseModel):
         prompt_overrides (Optional[PromptOverride]): Append / prepend /
             replace directives applied on top of the :attr:`prompts_ref`
             base. Requires :attr:`prompts_ref` to be set.
-
-    Methods:
-        validate_type: Ensure :attr:`type` is a registered processor
-            step-type id.
-        validate_unit: Ensure :attr:`unit` is in :data:`UNIT_VALUES`.
-        validate_prompt_sources: Enforce that :attr:`prompt` and
-            :attr:`prompts_ref` are not both set and that
-            :attr:`prompt_overrides` requires :attr:`prompts_ref`.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -441,43 +418,26 @@ class StepConfig(BaseModel):
 
     @field_validator("type")
     @classmethod
-    def validate_type(cls, step_type_value: str) -> str:
-        """Ensure the step type is a registered processor step-type id.
-
-        Args:
-            step_type_value (str): Raw step type string from YAML.
-
-        Returns:
-            str: The step type, unchanged.
+    def validate_type(cls, value: str) -> str:
+        """Ensure the type is a registered processor type id.
 
         Raises:
-            ValueError: If the step type is not registered as a
-                ``processor`` node in :mod:`src.node_registry`.
+            ValueError: If the type is not registered in
+                :mod:`src.node_registry`.
         """
-        registered_step_types = _registered_processor_step_types()
-        if step_type_value not in registered_step_types:
+        registered = _registered_processor_types()
+        if value not in registered:
             raise ValueError(
-                "step type must be one of "
-                f"{sorted(registered_step_types)}; got {step_type_value!r}. "
-                "Registered processor step types come from "
+                f"processor type must be one of {sorted(registered)}; "
+                f"got {value!r}. Registered processor types come from "
                 "config/node_types.yaml via src/node_registry.py."
             )
-        return step_type_value
+        return value
 
     @field_validator("unit")
     @classmethod
     def validate_unit(cls, unit_value: str) -> str:
-        """Ensure the unit is one of :data:`UNIT_VALUES`.
-
-        Args:
-            unit_value (str): Raw unit string from YAML.
-
-        Returns:
-            str: The unit, unchanged.
-
-        Raises:
-            ValueError: If the unit is not registered.
-        """
+        """Ensure the unit is one of :data:`UNIT_VALUES`."""
         if unit_value not in UNIT_VALUES:
             raise ValueError(
                 f"unit must be one of {sorted(UNIT_VALUES)}; "
@@ -486,34 +446,25 @@ class StepConfig(BaseModel):
         return unit_value
 
     @model_validator(mode="after")
-    def validate_prompt_sources(self) -> "StepConfig":
-        """Enforce the mutual-exclusion rules for the prompt fields.
-
-        Inline :attr:`prompt` and :attr:`prompts_ref` cannot both be set
-        on the same step, and :attr:`prompt_overrides` requires
-        :attr:`prompts_ref` to name a base instruction list.
-
-        Returns:
-            StepConfig: The same instance, unchanged.
-
-        Raises:
-            ValueError: If inline :attr:`prompt` and :attr:`prompts_ref`
-                are both set, or if :attr:`prompt_overrides` is set
-                without :attr:`prompts_ref`.
-        """
+    def validate_prompt_sources(self) -> "ProcessorConfig":
+        """Enforce mutual-exclusion rules for the prompt fields."""
         if self.prompt is not None and self.prompts_ref is not None:
             raise ValueError(
-                f"Step (type={self.type!r}) sets both inline 'prompt' and "
+                f"Processor (type={self.type!r}) sets both inline 'prompt' and "
                 "'prompts_ref'. Use exactly one: inline for a full override, "
                 "prompts_ref for a reference (with optional prompt_overrides)."
             )
         if self.prompt_overrides is not None and self.prompts_ref is None:
             raise ValueError(
-                f"Step (type={self.type!r}) sets 'prompt_overrides' without "
+                f"Processor (type={self.type!r}) sets 'prompt_overrides' without "
                 "'prompts_ref'. Overrides apply on top of a reference; remove "
                 "prompt_overrides or add prompts_ref."
             )
         return self
+
+
+StepConfig = ProcessorConfig
+"""Backward-compatible alias. Prefer :class:`ProcessorConfig`."""
 
 
 class AsyncConfig(BaseModel):
@@ -648,19 +599,14 @@ class DisplayConfig(BaseModel):
 class FlowConfig(BaseModel):
     """Runtime view of a flow, derived from a :class:`FlowDocument`.
 
-    The flow YAML now stores nodes and edges, not the flat list of
-    resources/steps this class represents. The graph compiler in
+    The flow YAML stores nodes and edges. The graph compiler in
     :func:`compile_flow_document_to_runtime` walks the parsed
     :class:`FlowDocument` and constructs an instance of this class so
-    :mod:`src.flow_builder` can keep reading ``schema.flow.<field>``
-    unchanged.
+    :mod:`src.flow_builder` can read ``schema.flow.<field>``.
 
     Attributes:
-        schema_version (int): Always ``1`` for graphs produced by the
-            new editor; kept for backward compatibility with code that
-            inspects this field.
-        name (str): Short identifier for the flow. Used in logs and
-            output file prefixes.
+        schema_version (int): Always ``1``.
+        name (str): Short identifier for the flow.
         description (str): Free-form human-readable description.
         resources (List[LLMResource]): LLM provider entries derived from
             ``llm_call`` nodes targeted by ``llm_call`` edges.
@@ -673,8 +619,8 @@ class FlowConfig(BaseModel):
         prompts (str): Project-root-relative POSIX path to the prompts
             JSON file consumed by the processors. Comes from
             :attr:`FlowSettings.prompts`.
-        steps (List[StepConfig]): Pipeline steps in topological order
-            derived from feedforward edges.
+        processors (List[ProcessorConfig]): Processors in topological
+            order derived from feedforward edges.
         processing_limit (Optional[int]): Optional cap on the number of
             entities/rows the runner processes.
         async_config (AsyncConfig): Concurrency settings.
@@ -682,14 +628,6 @@ class FlowConfig(BaseModel):
             ``csv_output`` / ``json_output`` node.
         logging (LoggingConfig): Logger file and verbosity flags.
         display (DisplayConfig): User-visible progress options.
-
-    Methods:
-        validate_taxonomy_and_prompt_paths: Enforce the project-root-
-            relative POSIX convention on :attr:`taxonomy` and
-            :attr:`prompts`.
-        validate_resources: Ensure resource ids are unique and every
-            ``step.llm`` reference resolves.
-        validate_steps_non_empty: Ensure at least one step is declared.
     """
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -702,7 +640,9 @@ class FlowConfig(BaseModel):
     taxonomy: str = ""
     taxonomy_selected_keys: Optional[List[str]] = None
     prompts: str = "config/prompts.json"
-    steps: List[StepConfig]
+    processors: List[ProcessorConfig] = Field(
+        validation_alias=AliasChoices("processors", "steps"),
+    )
     processing_limit: Optional[int] = None
     async_config: AsyncConfig = Field(default_factory=AsyncConfig, alias="async")
     output: OutputConfig
@@ -748,15 +688,7 @@ class FlowConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_resources(self) -> "FlowConfig":
-        """Enforce unique resource ids and resolvable ``step.llm`` references.
-
-        Returns:
-            FlowConfig: The same instance, unchanged.
-
-        Raises:
-            ValueError: If a duplicate resource id is found or a step
-                references an unknown resource id.
-        """
+        """Enforce unique resource ids and resolvable processor.llm references."""
         seen_ids: set[str] = set()
         for resource in self.resources:
             if resource.id in seen_ids:
@@ -768,32 +700,29 @@ class FlowConfig(BaseModel):
 
         if not self.resources:
             raise ValueError(
-                "At least one LLM resource must be declared (either under "
-                "flow.resources[*] or via the flow.llm shorthand)."
+                "At least one LLM resource must be declared."
             )
 
-        for step_index, step in enumerate(self.steps):
-            if step.llm is not None and step.llm not in seen_ids:
+        for idx, proc in enumerate(self.processors):
+            if proc.llm is not None and proc.llm not in seen_ids:
                 raise ValueError(
-                    f"Step {step_index} (type={step.type!r}) references "
-                    f"llm={step.llm!r}, which is not among the declared "
+                    f"Processor {idx} (type={proc.type!r}) references "
+                    f"llm={proc.llm!r}, which is not among the declared "
                     f"resource ids: {sorted(seen_ids)}"
                 )
         return self
 
     @model_validator(mode="after")
-    def validate_steps_non_empty(self) -> "FlowConfig":
-        """Reject a flow with zero steps.
-
-        Returns:
-            FlowConfig: The same instance, unchanged.
-
-        Raises:
-            ValueError: If :attr:`steps` is empty.
-        """
-        if not self.steps:
-            raise ValueError("flow.steps must contain at least one step.")
+    def validate_processors_non_empty(self) -> "FlowConfig":
+        """Reject a flow with zero processors."""
+        if not self.processors:
+            raise ValueError("flow.processors must contain at least one processor.")
         return self
+
+    @property
+    def steps(self) -> List[ProcessorConfig]:
+        """Backward-compatible alias for :attr:`processors`."""
+        return self.processors
 
 
 
@@ -1019,7 +948,13 @@ def _build_llm_resource_from_node(node: NodeEntry) -> LLMResource:
     """Build a :class:`LLMResource` from one ``llm_call`` node entry."""
     config = dict(node.config)
     resource_id = str(config.get("resource_id") or node.id)
-    provider = str(config.get("provider") or "openrouter")
+    raw_provider = config.get("provider")
+    if not raw_provider:
+        raise ValueError(
+            f"LLM node {node.id!r} is missing 'provider'. "
+            "Set it to one of: openrouter, openai, claude, google, vllm, ollama, llama_cpp."
+        )
+    provider = str(raw_provider)
     model = str(config.get("model") or "")
     api_base = config.get("api_base")
     api_key = config.get("api_key")
@@ -1084,10 +1019,10 @@ def _build_taxonomy_path(node: NodeEntry) -> str:
     )
 
 
-def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepConfig:
-    """Build a :class:`StepConfig` from one ``processor`` node entry."""
+def _build_processor_config(node: NodeEntry, llm_resource_id: str) -> ProcessorConfig:
+    """Build a :class:`ProcessorConfig` from one ``processor`` node entry."""
     config = dict(node.config)
-    step_type = str(config.get("step_type") or "processor")
+    processor_type = str(config.get("step_type") or config.get("processor_type") or "processor")
     mode = config.get("mode")
     mode = mode if isinstance(mode, str) and mode else None
     keys = config.get("keys")
@@ -1130,8 +1065,8 @@ def _build_step_from_processor(node: NodeEntry, llm_resource_id: str) -> StepCon
         else None
     )
 
-    return StepConfig(
-        type=step_type,
+    return ProcessorConfig(
+        type=processor_type,
         unit="row",
         llm=llm_resource_id,
         mode=mode,
@@ -1160,7 +1095,7 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         raise ValueError("Flow has no processor nodes.")
 
     resources_by_id: Dict[str, LLMResource] = {}
-    steps: List[StepConfig] = []
+    processors: List[ProcessorConfig] = []
     taxonomy_path: Optional[str] = None
     taxonomy_selected_keys: Optional[List[str]] = None
     seen_codebook_node_id: Optional[str] = None
@@ -1206,9 +1141,9 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
                 taxonomy_selected_keys = [str(k) for k in raw_keys]
             processor_has_codebook = True
 
-        step = _build_step_from_processor(processor_node, llm_resource.id)
+        step = _build_processor_config(processor_node, llm_resource.id)
         step.has_codebook = processor_has_codebook
-        steps.append(step)
+        processors.append(step)
 
     if taxonomy_path is None:
         taxonomy_path = ""
@@ -1222,7 +1157,7 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         taxonomy=taxonomy_path,
         taxonomy_selected_keys=taxonomy_selected_keys,
         prompts=document.settings.prompts,
-        steps=steps,
+        steps=processors,
         processing_limit=document.settings.processing_limit,
         async_config=document.settings.async_config,
         output=_build_output_config_from_node(output_node),

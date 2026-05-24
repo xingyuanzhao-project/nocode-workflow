@@ -32,7 +32,7 @@ flow:
     # To use local vLLM instead, swap the default resource with:
     # - id: default
     #   type: llm_provider
-    #   provider: local_vllm
+    #   provider: vllm
     #   model: hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4
     #   api_base: http://localhost:8000/v1
     #   api_key: dummy
@@ -63,7 +63,7 @@ flow:
   #   - conversation_summary_update : subsequent documents, carries previous_summary
   #                                   (selects prompts.summary_update)
   # The runner merges the pair into a single sequential loop per entity.
-  steps:
+  processors:
     - type: conversation_summary_first
       unit: row
 

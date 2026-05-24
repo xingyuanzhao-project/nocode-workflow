@@ -5,7 +5,7 @@
 # messy_text/hftoken.md into .env as OPENROUTER_API_KEY.
 #
 # provider stays as "openrouter" because the flow_loader enum only
-# accepts {local_vllm, openrouter, openai}; api_base is overridden
+# accepts {vllm, openrouter, openai, claude, google}; api_base is overridden
 # to point at HF's router, which accepts the provider's OpenAI
 # client protocol unchanged.
 #
@@ -39,7 +39,7 @@ flow:
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
 
-  steps:
+  processors:
     - type: conversation_summary_first
       unit: row
 

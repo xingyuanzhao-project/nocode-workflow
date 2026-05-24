@@ -1,38 +1,34 @@
 """Registry of node types consumed by the config-driven flow runner.
 
 The registry lives on disk as ``config/node_types.yaml``. Each entry declares
-one node type (a data source, a processor step, or a resource) together with
-the defaults that other modules need to know about it: which unit of analysis
-the node operates on, what it consumes and produces, whether it needs an LLM
-client, and what its default I/O schema and default prompt reference are.
+one node type (a data source, a processor, or a resource) together with
+the defaults that other modules need: which unit of analysis the node
+operates on, what it consumes and produces, whether it needs an LLM client,
+and what its default I/O schema and default prompt reference are.
 
 Contents and relationships
 --------------------------
 
 - :class:`NodeTypeCategory` — closed enum identifying which family a node
   belongs to (``data``, ``processor``, ``resource``).
-- :class:`NodeTypeEntry` — one row of the registry. Carries the fields that
-  :mod:`src.flow_loader` and :mod:`src.flow_builder` read when they validate
-  a step type and resolve its I/O schema and prompt defaults.
+- :class:`NodeTypeEntry` — one row of the registry.
 - :class:`NodeTypeRegistry` — the whole registry as a validated Pydantic
   model. Exposes :meth:`NodeTypeRegistry.get_entry` and
-  :meth:`NodeTypeRegistry.processor_step_types` helpers used by callers.
+  :meth:`NodeTypeRegistry.processor_types` helpers used by callers.
 - :data:`DEFAULT_REGISTRY_PATH` — the canonical path
-  ``config/node_types.yaml`` relative to the project root. Kept as the
-  single source of truth so tests and the production runner agree on what
-  is loaded.
+  ``config/node_types.yaml`` relative to the project root.
 
 How the rest of the system uses this module
 -------------------------------------------
 
-:mod:`src.flow_loader` calls :func:`get_processor_step_types` inside
-:meth:`src.flow_loader.StepConfig.validate_type` to accept exactly the step
-``type`` values declared under ``category: processor`` in the YAML. This
-replaces the previously hardcoded ``STEP_TYPES`` frozenset.
+:mod:`src.flow_loader` calls :func:`get_processor_types` inside
+:meth:`src.flow_loader.ProcessorConfig.validate_type` to accept exactly
+the ``type`` values declared under ``category: processor`` in the YAML.
 
-:mod:`src.flow_builder` calls :func:`get_entry` from the per-step config
-builder to read ``default_io_schema`` and ``default_prompt_ref`` when the
-user has not supplied an override on the :class:`StepConfig` itself.
+:mod:`src.flow_builder` calls :func:`get_entry` from the per-processor
+config builder to read ``default_io_schema`` and ``default_prompt_ref``
+when the user has not supplied an override on the
+:class:`ProcessorConfig` itself.
 
 Invariants enforced by this module
 ----------------------------------
@@ -64,7 +60,7 @@ NodeTypeCategory = Literal["data", "processor", "resource"]
 """Closed set of node families the registry recognises.
 
 ``data`` nodes represent inputs such as CSV files. ``processor`` nodes
-represent LLM-backed steps dispatched by :class:`src.flow_builder.FlowRunner`.
+represent LLM-backed processors dispatched by :class:`src.flow_builder.FlowRunner`.
 ``resource`` nodes represent clients such as an LLM provider endpoint.
 """
 
@@ -81,32 +77,21 @@ class NodeTypeEntry(BaseModel):
     Attributes:
         id (str): Stable identifier referenced from flow YAML files. For
             processor nodes this is the value users write under
-            ``steps[*].type`` (for example ``"single_summary"`` or
+            ``processors[*].type`` (for example ``"single_summary"`` or
             ``"classification"``).
         category (NodeTypeCategory): Which family the node belongs to.
-        label (str): Short human-readable name, suitable for a GUI palette
-            entry.
+        label (str): Short human-readable name.
         description (str): Longer human-readable description.
         default_unit (Optional[str]): Always ``"row"`` for processors,
             ``None`` for data and resource nodes.
-        consumes (List[str]): Names of fields this node reads from the
-            pipeline context. Informational for now; used by the future
-            GUI edge validator.
-        produces (List[str]): Names of fields this node writes into the
-            pipeline context. Informational for now; used by the future
-            GUI edge validator.
-        llm_backed (bool): ``True`` when the node issues LLM calls at
-            runtime. Used by the builder to decide whether a resolved LLM
-            client must be wired into the processor.
-        requires_resources (List[str]): Resource kinds this node needs at
-            runtime (for example ``"llm_provider"``).
+        consumes (List[str]): Names of fields this node reads.
+        produces (List[str]): Names of fields this node writes.
+        llm_backed (bool): ``True`` when the node issues LLM calls.
+        requires_resources (List[str]): Resource kinds this node needs.
         default_io_schema (Optional[Dict[str, Any]]): Default ``io_schema``
-            dict shape (``{"input": {...}, "output": {...}}``) used when
-            the step does not supply its own. ``None`` when no default
-            exists (data and resource nodes).
+            dict used when the processor does not supply its own.
         default_prompt_ref (Optional[str]): Default ``prompts_ref``
-            pointer (shape ``"path::key"`` or bare ``"key"``) used when
-            the step does not supply its own. ``None`` when no default
+            pointer used when the processor does not supply its own.
             exists.
         default_group_by (Optional[str]): Deprecated, ignored.
 
@@ -161,11 +146,9 @@ class NodeTypeRegistry(BaseModel):
         entries (List[NodeTypeEntry]): All registered node types.
 
     Methods:
-        ensure_unique_entry_ids: Reject registries with duplicate entry
-            ids.
+        ensure_unique_entry_ids: Reject registries with duplicate entry ids.
         get_entry: Look up a registry row by id.
-        processor_step_types: Return the frozenset of processor step
-            ids, used by :mod:`src.flow_loader` for step-type validation.
+        processor_types: Return the frozenset of processor type ids.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -213,16 +196,14 @@ class NodeTypeRegistry(BaseModel):
             f"{sorted(e.id for e in self.entries)}"
         )
 
-    def processor_step_types(self) -> FrozenSet[str]:
-        """Return the set of ids whose :attr:`NodeTypeEntry.category` is ``processor``.
-
-        Returns:
-            FrozenSet[str]: Exactly the step-type values accepted by
-            :class:`src.flow_loader.StepConfig.validate_type`.
-        """
+    def processor_types(self) -> FrozenSet[str]:
+        """Return the set of ids whose :attr:`NodeTypeEntry.category` is ``processor``."""
         return frozenset(
             entry.id for entry in self.entries if entry.category == "processor"
         )
+
+    # Backward-compatible alias
+    processor_step_types = processor_types
 
 
 def load_registry(registry_yaml_path: Path) -> NodeTypeRegistry:
@@ -287,46 +268,24 @@ def reset_default_registry_cache() -> None:
     _REGISTRY_SINGLETON = None
 
 
-def get_processor_step_types(
+def get_processor_types(
     registry: Optional[NodeTypeRegistry] = None,
 ) -> FrozenSet[str]:
-    """Return the processor step-type ids from ``registry`` (default cached).
-
-    Thin wrapper around :meth:`NodeTypeRegistry.processor_step_types` kept
-    as a module-level function so callers that do not need to touch the
-    registry object can import a single symbol.
-
-    Args:
-        registry (Optional[NodeTypeRegistry]): Registry to query. Defaults
-            to :func:`get_default_registry`.
-
-    Returns:
-        FrozenSet[str]: The processor step-type ids.
-    """
+    """Return the registered processor type ids from ``registry`` (default cached)."""
     if registry is None:
         registry = get_default_registry()
-    return registry.processor_step_types()
+    return registry.processor_types()
+
+
+get_processor_step_types = get_processor_types
+"""Backward-compatible alias."""
 
 
 def get_entry(
-    step_type: str,
+    entry_id: str,
     registry: Optional[NodeTypeRegistry] = None,
 ) -> NodeTypeEntry:
-    """Return the registry entry for ``step_type`` from ``registry`` (default cached).
-
-    Thin wrapper around :meth:`NodeTypeRegistry.get_entry`.
-
-    Args:
-        step_type (str): The :attr:`NodeTypeEntry.id` to look up.
-        registry (Optional[NodeTypeRegistry]): Registry to query. Defaults
-            to :func:`get_default_registry`.
-
-    Returns:
-        NodeTypeEntry: The matching entry.
-
-    Raises:
-        KeyError: If no entry has the requested id.
-    """
+    """Return the registry entry for ``entry_id`` from ``registry`` (default cached)."""
     if registry is None:
         registry = get_default_registry()
-    return registry.get_entry(step_type)
+    return registry.get_entry(entry_id)

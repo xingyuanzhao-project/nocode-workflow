@@ -1,5 +1,5 @@
-# A step declares both inline prompt and prompts_ref; must be rejected
-# by StepConfig.validate_prompt_sources.
+# A processor declares both inline prompt and prompts_ref; must be rejected
+# by ProcessorConfig.validate_prompt_sources.
 flow:
   schema_version: 1
   name: invalid_both_prompt_forms
@@ -15,7 +15,7 @@ flow:
     input_csv: data/df_text_by_report.csv
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
-  steps:
+  processors:
     - type: single_summary
       unit: row
       prompts_ref: summary

@@ -26,7 +26,7 @@ How the rest of the system uses this module
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -97,6 +97,7 @@ class RunStatusDTO(BaseModel):
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     error: Optional[str] = None
+    warnings: List[str] = []
     completed_entity_count: int = 0
     total_row_count: int = 0
 

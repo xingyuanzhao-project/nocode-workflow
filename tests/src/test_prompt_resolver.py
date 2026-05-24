@@ -2,7 +2,7 @@
 
 Every documented branch of :func:`resolve_step_prompt` is exercised
 directly. The tests build lightweight stand-ins for
-:class:`src.flow_loader.StepConfig` and
+:class:`src.flow_loader.ProcessorConfig` and
 :class:`src.node_registry.NodeTypeEntry` so this file has no dependency
 on the full flow loader.
 """
@@ -26,14 +26,7 @@ from src.prompt_resolver import (
 
 @dataclass
 class _FakeStep:
-    """Minimal stand-in for :class:`src.flow_loader.StepConfig`.
-
-    Attributes:
-        prompt (Optional[PromptInline]): Inline prompt block.
-        prompts_ref (Optional[str]): Reference key into the prompts
-            file.
-        prompt_overrides (Optional[PromptOverride]): Override directives.
-    """
+    """Minimal stand-in for :class:`src.flow_loader.ProcessorConfig`."""
 
     prompt: Optional[PromptInline] = None
     prompts_ref: Optional[str] = None

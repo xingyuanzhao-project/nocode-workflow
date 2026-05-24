@@ -13,13 +13,9 @@ There is no separate "settings" file. The YAML at :data:`flow_config` is
 the **entire** run specification, bundling two different things in one
 file:
 
-1. **Workflow** -- the ``steps:`` block, which selects processor step
+1. **Workflow** -- the ``processors:`` block, which selects processor
    types registered in :mod:`src.node_registry` via
-   ``config/node_types.yaml`` (currently
-   ``single_summary``, ``conversation_summary_first``,
-   ``conversation_summary_update``, ``label_extraction``,
-   ``label_summary``, and ``classification``) implemented by the
-   classes in :mod:`src.processors`.
+   ``config/node_types.yaml``, implemented by :mod:`src.processors`.
 2. **Settings** -- everything else in the same file: LLM provider,
    model, ``api_base``, ``api_key_env``, temperature, token budgets,
    input CSV, column roles, prompts/taxonomy paths, concurrency limits,

@@ -21,7 +21,7 @@ export interface LLMProviderNodeData {
   category: "resource";
   /** Resource id (defaults to ``"default"``). */
   resource_id: string;
-  /** Provider name (openrouter / openai / local_vllm). */
+  /** Provider name (openrouter / openai / claude / google / vllm / ollama). */
   provider: string;
   /** Model identifier. */
   model: string;

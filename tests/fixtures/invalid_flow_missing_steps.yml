@@ -1,8 +1,8 @@
-# flow.steps is empty; should be rejected by FlowConfig.validate_steps_non_empty.
+# flow.processors is empty; rejected by FlowConfig.validate_processors_non_empty.
 flow:
   schema_version: 1
   name: invalid_missing_steps
-  description: Steps list intentionally empty.
+  description: Processors list intentionally empty.
   resources:
     - id: default
       type: llm_provider
@@ -14,6 +14,6 @@ flow:
     input_csv: data/df_text_by_report.csv
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
-  steps: []
+  processors: []
   output:
     summary_csv: results/fixture/summary.csv

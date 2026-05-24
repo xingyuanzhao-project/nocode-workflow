@@ -24,14 +24,14 @@ from typing import List, Literal
 from pydantic import BaseModel, ConfigDict
 
 
-ProviderName = Literal["openrouter", "openai"]
+ProviderName = Literal["openrouter", "openai", "claude", "google"]
 """Cloud providers for which API keys can be configured at runtime."""
 
-LocalProviderName = Literal["local_vllm", "ollama", "vllm", "llama_cpp"]
+LocalProviderName = Literal["ollama", "vllm", "llama_cpp"]
 """Local providers that connect via base URL without real API keys."""
 
 AnyProviderName = Literal[
-    "openrouter", "openai", "local_vllm", "ollama", "vllm", "llama_cpp",
+    "openrouter", "openai", "claude", "google", "ollama", "vllm", "llama_cpp",
 ]
 """Union of all supported provider identifiers."""
 

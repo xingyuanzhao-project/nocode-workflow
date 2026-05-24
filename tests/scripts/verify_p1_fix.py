@@ -28,7 +28,7 @@ async def main() -> None:
     print(f"Loading flow from: {flow_path}")
     runner = build_flow(str(flow_path))
     print(f"Flow loaded: {runner.schema.flow.name}")
-    print(f"Steps: {len(runner.schema.flow.steps)}")
+    print(f"Processors: {len(runner.schema.flow.processors)}")
     print(f"Resources: {list(runner.clients_by_id.keys())}")
     print()
 

@@ -2,7 +2,9 @@
  * Output Schema tab of the :mod:`PropertyPanel`.
  *
  * Editable table of the processor's output fields. Each row carries
- * a ``field_name``, ``type``, and ``required`` flag.
+ * a ``field_name``, ``data_type``, ``required`` flag, and conditional
+ * metadata (``options`` for category, ``range`` / ``interval`` for
+ * numeric/integer).
  */
 
 import { useCallback, useMemo } from "react";
@@ -10,20 +12,46 @@ import { useCallback, useMemo } from "react";
 import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { useGraphStore, type GraphNode } from "@/stores/graph_store";
 
+type DataType = "string" | "binary" | "category" | "numeric" | "integer";
+
+const DATA_TYPE_OPTIONS: { value: DataType; label: string }[] = [
+  { value: "string", label: "String" },
+  { value: "binary", label: "Binary" },
+  { value: "category", label: "Category" },
+  { value: "numeric", label: "Numeric" },
+  { value: "integer", label: "Integer" },
+];
+
+const DATA_TYPE_TO_JSON_SCHEMA: Record<DataType, string> = {
+  string: "string",
+  binary: "string",
+  category: "string",
+  numeric: "number",
+  integer: "integer",
+};
+
 interface OutputFieldRow {
   field_name: string;
-  type: string;
+  data_type: DataType;
   required: boolean;
+  options: string[];
+  range: string;
+  interval: string;
 }
 
-const PRIMITIVE_TYPE_OPTIONS: readonly string[] = [
-  "string",
-  "array",
-  "object",
-  "boolean",
-  "integer",
-  "number",
-];
+function parseDataType(raw: unknown): DataType {
+  if (
+    typeof raw === "string" &&
+    (DATA_TYPE_OPTIONS as { value: string }[]).some((dt) => dt.value === raw)
+  ) {
+    return raw as DataType;
+  }
+  if (raw === "number") return "numeric";
+  if (raw === "boolean") return "binary";
+  if (raw === "array") return "category";
+  if (raw === "integer") return "integer";
+  return "string";
+}
 
 function readOutputRows(node: GraphNode): OutputFieldRow[] {
   const io_schema_override = node.data.io_schema;
@@ -48,33 +76,50 @@ function readOutputRows(node: GraphNode): OutputFieldRow[] {
   );
   return Object.entries(output_block as Record<string, unknown>).map(
     ([field_name, field_body]) => {
-      const type_value =
-        field_body &&
-        typeof field_body === "object" &&
-        "type" in (field_body as Record<string, unknown>)
-          ? String((field_body as Record<string, unknown>).type ?? "")
-          : typeof field_body === "string"
-            ? field_body
-            : "";
+      if (!field_body || typeof field_body !== "object") {
+        return {
+          field_name,
+          data_type: "string" as DataType,
+          required: required_set.has(field_name),
+          options: [],
+          range: "",
+          interval: "",
+        };
+      }
+      const rec = field_body as Record<string, unknown>;
+      const raw_data_type = rec.data_type ?? rec.type ?? "string";
+      const options_raw = rec.options;
+      const options_list: string[] = Array.isArray(options_raw)
+        ? options_raw.map((v) => String(v))
+        : [];
       return {
         field_name,
-        type: type_value,
+        data_type: parseDataType(raw_data_type),
         required: required_set.has(field_name),
+        options: options_list,
+        range: String(rec.range ?? ""),
+        interval: String(rec.interval ?? ""),
       };
     },
   );
 }
 
-function rowsToIoSchema(
-  rows: OutputFieldRow[],
-): Record<string, unknown> {
-  const output: Record<string, { type: string }> = {};
+function rowsToIoSchema(rows: OutputFieldRow[]): Record<string, unknown> {
+  const output: Record<string, Record<string, unknown>> = {};
   const required_output: string[] = [];
   for (const row of rows) {
-    if (!row.field_name) {
-      continue;
+    if (!row.field_name) continue;
+    const entry: Record<string, unknown> = {
+      type: DATA_TYPE_TO_JSON_SCHEMA[row.data_type],
+      data_type: row.data_type,
+    };
+    if (row.data_type === "category") {
+      entry.options = row.options;
+    } else if (row.data_type === "numeric" || row.data_type === "integer") {
+      if (row.range) entry.range = row.range;
+      if (row.interval) entry.interval = row.interval;
     }
-    output[row.field_name] = { type: row.type };
+    output[row.field_name] = entry;
     if (row.required) {
       required_output.push(row.field_name);
     }
@@ -121,7 +166,14 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
   const on_add_row = useCallback(() => {
     write_rows([
       ...rows,
-      { field_name: `field_${rows.length + 1}`, type: "string", required: false },
+      {
+        field_name: `field_${rows.length + 1}`,
+        data_type: "string",
+        required: false,
+        options: [],
+        range: "",
+        interval: "",
+      },
     ]);
   }, [rows, write_rows]);
 
@@ -138,64 +190,133 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
           item.
         </p>
       </div>
-      <table className="text-xs">
-        <thead>
-          <tr className="text-left text-muted-foreground">
-            <th className="pb-1 font-medium">Field</th>
-            <th className="pb-1 font-medium">Type</th>
-            <th className="pb-1 text-center font-medium">Required</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody className="align-top">
-          {rows.map((row, row_index) => (
-            <tr key={row_index}>
-              <td className="pr-1 py-0.5">
-                <input
-                  className="w-full rounded-md border bg-background px-1.5 py-0.5 font-mono"
-                  value={row.field_name}
-                  onChange={(event) =>
-                    on_row_change(row_index, { field_name: event.target.value })
-                  }
-                />
-              </td>
-              <td className="pr-1 py-0.5">
-                <select
-                  className="w-full rounded-md border bg-background px-1.5 py-0.5"
-                  value={row.type}
-                  onChange={(event) =>
-                    on_row_change(row_index, { type: event.target.value })
-                  }
-                >
-                  {PRIMITIVE_TYPE_OPTIONS.map((primitive_type) => (
-                    <option key={primitive_type} value={primitive_type}>
-                      {primitive_type}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="text-center py-0.5">
-                <input
-                  type="checkbox"
-                  checked={row.required}
-                  onChange={(event) =>
-                    on_row_change(row_index, { required: event.target.checked })
-                  }
-                />
-              </td>
-              <td className="py-0.5 text-right">
-                <button
-                  type="button"
-                  className="text-destructive hover:underline"
-                  onClick={() => on_row_remove(row_index)}
-                >
-                  Remove
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      <div className="flex flex-col gap-4">
+        {rows.map((row, row_index) => (
+          <div
+            key={row_index}
+            className="rounded-md border bg-card p-3"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="flex flex-1 flex-col gap-0.5 text-xs">
+                    <span className="font-medium">Field</span>
+                    <input
+                      className="w-full rounded-md border bg-background px-1.5 py-0.5 font-mono text-sm"
+                      value={row.field_name}
+                      onChange={(event) =>
+                        on_row_change(row_index, {
+                          field_name: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-xs">
+                    <span className="font-medium">Required</span>
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={row.required}
+                      onChange={(event) =>
+                        on_row_change(row_index, {
+                          required: event.target.checked,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+
+                <label className="flex flex-col gap-0.5 text-xs">
+                  <span className="font-medium">Type</span>
+                  <select
+                    className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                    value={row.data_type}
+                    onChange={(event) =>
+                      on_row_change(row_index, {
+                        data_type: event.target.value as DataType,
+                        options: [],
+                        range: "",
+                        interval: "",
+                      })
+                    }
+                  >
+                    {DATA_TYPE_OPTIONS.map((dt) => (
+                      <option key={dt.value} value={dt.value}>
+                        {dt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {(row.data_type === "numeric" ||
+                  row.data_type === "integer") ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Range</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 0–100"
+                        value={row.range}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            range: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Interval</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 1"
+                        value={row.interval}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            interval: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="flex flex-col gap-0.5 text-xs">
+                    <span className="font-medium">
+                      {row.data_type === "category"
+                        ? "Available Options (comma-separated)"
+                        : "Available Options"}
+                    </span>
+                    <input
+                      className="rounded-md border bg-background px-1.5 py-0.5 text-sm disabled:opacity-50"
+                      disabled={
+                        row.data_type === "string" ||
+                        row.data_type === "binary"
+                      }
+                      value={row.options.join(", ")}
+                      onChange={(event) =>
+                        on_row_change(row_index, {
+                          options: event.target.value
+                            .split(",")
+                            .map((v) => v.trim())
+                            .filter((v) => v.length > 0),
+                        })
+                      }
+                    />
+                  </label>
+                )}
+              </div>
+              <button
+                type="button"
+                className="mt-4 text-xs text-destructive hover:underline"
+                onClick={() => on_row_remove(row_index)}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="flex gap-2 text-xs">
         <button
           type="button"

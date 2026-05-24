@@ -43,15 +43,22 @@ class ProviderName(str, Enum):
     """Closed enum of LLM providers the proxy can fetch.
 
     Members:
-        OPENROUTER: OpenRouter's public model catalogue
-            (``https://openrouter.ai/api/v1/models``).
-        OPENAI: OpenAI's authenticated model catalogue
-            (``https://api.openai.com/v1/models``; requires
-            ``OPENAI_API_KEY``).
+        OPENROUTER: OpenRouter's public model catalogue.
+        OPENAI: OpenAI's authenticated model catalogue.
+        CLAUDE: Anthropic's model catalogue.
+        GOOGLE: Google's Gemini model catalogue.
+        OLLAMA: Local Ollama server.
+        VLLM: Local vLLM server.
+        LLAMA_CPP: Local llama.cpp server.
     """
 
     OPENROUTER = "openrouter"
     OPENAI = "openai"
+    CLAUDE = "claude"
+    GOOGLE = "google"
+    OLLAMA = "ollama"
+    VLLM = "vllm"
+    LLAMA_CPP = "llama_cpp"
 
 
 class ProviderModel(BaseModel):

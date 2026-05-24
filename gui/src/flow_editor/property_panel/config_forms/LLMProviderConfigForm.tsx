@@ -35,9 +35,11 @@ type ProviderFormValues = z.infer<typeof providerFormSchema>;
 const PROVIDER_ENV_VAR: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
   openai: "OPENAI_API_KEY",
+  claude: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_API_KEY",
 };
 
-const LOCAL_PROVIDERS = new Set(["local_vllm", "ollama", "vllm", "llama_cpp"]);
+const LOCAL_PROVIDERS = new Set(["ollama", "vllm", "llama_cpp"]);
 
 export interface LLMProviderConfigFormProps {
   node: GraphNode;
@@ -48,7 +50,8 @@ function readInitialValues(node: GraphNode): ProviderFormValues {
   const valid_providers = [
     "openrouter",
     "openai",
-    "local_vllm",
+    "claude",
+    "google",
     "ollama",
     "vllm",
     "llama_cpp",
@@ -118,7 +121,8 @@ export function LLMProviderConfigForm({
         >
           <option value="openrouter">openrouter</option>
           <option value="openai">openai</option>
-          <option value="local_vllm">local_vllm</option>
+          <option value="claude">claude</option>
+          <option value="google">google</option>
           <option value="ollama">ollama</option>
           <option value="vllm">vllm</option>
           <option value="llama_cpp">llama_cpp</option>

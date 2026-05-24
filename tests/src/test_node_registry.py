@@ -21,7 +21,7 @@ from src.node_registry import (
     NodeTypeRegistry,
     get_default_registry,
     get_entry,
-    get_processor_step_types,
+    get_processor_types,
     load_registry,
     reset_default_registry_cache,
 )
@@ -92,7 +92,7 @@ class TestNodeTypeRegistry:
         with pytest.raises(KeyError, match="does_not_exist"):
             registry.get_entry("does_not_exist")
 
-    def test_processor_step_types_excludes_data_and_resource_entries(self) -> None:
+    def test_processor_types_excludes_data_and_resource_entries(self) -> None:
         registry = NodeTypeRegistry(
             entries=[
                 NodeTypeEntry(id="csv_input", category="data"),
@@ -111,7 +111,7 @@ class TestNodeTypeRegistry:
                 ),
             ]
         )
-        assert registry.processor_step_types() == frozenset(
+        assert registry.processor_types() == frozenset(
             {"single_summary", "classification"}
         )
 
@@ -156,17 +156,8 @@ class TestLoadRegistry:
 
     def test_load_default_registry_has_expected_processor_ids(self) -> None:
         registry = load_registry(DEFAULT_REGISTRY_PATH)
-        processor_ids = registry.processor_step_types()
-        # Spot-check: the handful every flow YAML depends on.
-        for required_id in [
-            "single_summary",
-            "conversation_summary_first",
-            "conversation_summary_update",
-            "label_extraction",
-            "label_summary",
-            "classification",
-        ]:
-            assert required_id in processor_ids
+        processor_ids = registry.processor_types()
+        assert "processor" in processor_ids
 
 
 # ---------------------------------------------------------------------
@@ -188,15 +179,15 @@ class TestDefaultRegistryCache:
         second_registry = get_default_registry()
         assert first_registry is not second_registry
 
-    def test_get_processor_step_types_matches_registry(self) -> None:
+    def test_get_processor_types_matches_registry(self) -> None:
         reset_default_registry_cache()
-        expected = get_default_registry().processor_step_types()
-        assert get_processor_step_types() == expected
+        expected = get_default_registry().processor_types()
+        assert get_processor_types() == expected
 
     def test_get_entry_uses_default_registry_when_none_passed(self) -> None:
         reset_default_registry_cache()
-        entry = get_entry("single_summary")
-        assert entry.id == "single_summary"
+        entry = get_entry("processor")
+        assert entry.id == "processor"
 
     def test_get_entry_accepts_custom_registry(self) -> None:
         custom_registry = NodeTypeRegistry(

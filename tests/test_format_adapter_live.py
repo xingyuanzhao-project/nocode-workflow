@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-from src.format_adapter import adapt_request_kwargs, normalize_llm_response
+from src.format_adapter import normalize_llm_response
 from src.io_schema import IOSchema, to_response_format
 
 
@@ -80,15 +80,12 @@ async def run_test(model: str) -> dict:
         "response_format": response_format,
     }
 
-    # Apply input adaptation
-    adapted_kwargs = adapt_request_kwargs(model, kwargs)
+    adapted_kwargs = kwargs
     used_response_format = "response_format" in adapted_kwargs
-    used_prompt_schema = not used_response_format
 
     print(f"\n{'='*60}")
     print(f"MODEL: {model}")
     print(f"  response_format sent: {used_response_format}")
-    print(f"  schema in prompt:     {used_prompt_schema}")
     print(f"{'='*60}")
 
     try:

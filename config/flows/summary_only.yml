@@ -32,7 +32,7 @@ flow:
   taxonomy: config/taxonomy.json
   prompts: config/prompts.json
 
-  steps:
+  processors:
     - type: single_summary
       unit: row
 

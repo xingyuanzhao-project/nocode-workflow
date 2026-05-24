@@ -27,17 +27,17 @@ Contents and relationships
   into :mod:`src.processors`' runtime config under the key
   ``prompt_resolved``.
 - :func:`resolve_step_prompt` — the single entry point. Takes the
-  :class:`src.flow_loader.StepConfig`, the already-loaded
-  ``config/prompts.json`` payload, and the step's registry entry;
+  :class:`src.flow_loader.ProcessorConfig`, the already-loaded
+  ``config/prompts.json`` payload, and the processor's registry entry;
   returns a :class:`ResolvedPrompt` or ``None``.
 
 How the rest of the system uses this module
 -------------------------------------------
 
 :mod:`src.flow_builder` imports the Pydantic models so they are
-addressable from :class:`src.flow_loader.StepConfig` field types, and
-imports :func:`resolve_step_prompt` to compute the per-step resolved
-prompt before each processor is instantiated.
+addressable from :class:`src.flow_loader.ProcessorConfig` field types,
+and imports :func:`resolve_step_prompt` to compute the per-processor
+resolved prompt before each processor is instantiated.
 
 Invariants enforced by this module
 ----------------------------------
@@ -183,42 +183,23 @@ def resolve_step_prompt(
     registry_entry: Any,
     flow_prompts_path: Optional[str] = None,
 ) -> Optional[ResolvedPrompt]:
-    """Resolve the effective prompt for one step.
+    """Resolve the effective prompt for one processor.
 
-    Implements the precedence order documented in ``docs/gui_plan.md``
-    section 1.8:
-
-    - inline :class:`PromptInline` > ``prompts_ref`` + overrides >
-      ``prompts_ref`` alone > registry ``default_prompt_ref`` > ``None``
-      (hardcoded fallback in the processor).
+    Precedence: inline :class:`PromptInline` > ``prompts_ref`` + overrides >
+    ``prompts_ref`` alone > registry ``default_prompt_ref`` > ``None``.
 
     Args:
-        step (Any): The :class:`src.flow_loader.StepConfig` for this
-            step. Typed as ``Any`` to avoid a circular import; the
-            function reads the attributes ``prompt``, ``prompts_ref``,
-            and ``prompt_overrides``.
-        prompts_file (Dict[str, Any]): Parsed content of the flow-level
-            ``config/prompts.json``. Lookups resolve against this dict.
+        step (Any): The :class:`src.flow_loader.ProcessorConfig`. Typed as
+            ``Any`` to avoid a circular import; reads ``prompt``,
+            ``prompts_ref``, and ``prompt_overrides``.
+        prompts_file (Dict[str, Any]): Parsed ``config/prompts.json``.
         registry_entry (Any): The :class:`src.node_registry.NodeTypeEntry`
-            for the step's type. Typed as ``Any`` to avoid a circular
-            import; the function reads the attribute
-            ``default_prompt_ref``.
-        flow_prompts_path (Optional[str]): Path string of the flow-level
-            prompts file, used to validate path-qualified ``prompts_ref``
-            values. ``None`` disables path validation.
+            for the processor's type.
+        flow_prompts_path (Optional[str]): Path of the flow-level prompts
+            file for path validation.
 
     Returns:
-        Optional[ResolvedPrompt]: The resolved prompt, or ``None`` when
-        no override and no registry default apply (in which case the
-        processor continues to use its own hardcoded behavior).
-
-    Raises:
-        ValueError: If inline :attr:`PromptInline` and ``prompts_ref``
-            are both set, if ``prompt_overrides`` is set without
-            ``prompts_ref``, or if a path-qualified ``prompts_ref``
-            points at a different file than ``flow_prompts_path``.
-        KeyError: If a ``prompts_ref`` key is not found in
-            ``prompts_file``.
+        Optional[ResolvedPrompt]: The resolved prompt, or ``None``.
     """
     inline_prompt = getattr(step, "prompt", None)
     prompts_ref = getattr(step, "prompts_ref", None)

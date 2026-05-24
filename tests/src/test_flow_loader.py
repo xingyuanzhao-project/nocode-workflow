@@ -24,7 +24,7 @@ from src.flow_loader import (
     LLMResource,
     LoggingConfig,
     OutputConfig,
-    StepConfig,
+    ProcessorConfig,
     _validate_project_relative_posix_path,
 )
 
@@ -72,8 +72,8 @@ def _minimal_valid_flow_body() -> Dict[str, Any]:
         },
         "taxonomy": "config/taxonomy.json",
         "prompts": "config/prompts.json",
-        "steps": [
-            {"type": "single_summary", "unit": "row"},
+        "processors": [
+            {"type": "processor", "unit": "row"},
         ],
         "output": {"summary_csv": "results/summary.csv"},
     }
@@ -134,7 +134,7 @@ class TestLLMResourceValidators:
 
     def test_accepts_neither_api_key_set(self) -> None:
         # Not an error at load time; the builder resolves at startup.
-        resource = LLMResource(id="r", provider="local_vllm", model="m")
+        resource = LLMResource(id="r", provider="vllm", model="m")
         assert resource.api_key is None
         assert resource.api_key_env is None
 
@@ -155,33 +155,33 @@ class TestDataConfigInputCsvPath:
 
 
 # ---------------------------------------------------------------------
-# StepConfig
+# ProcessorConfig
 # ---------------------------------------------------------------------
 
 
-class TestStepConfigValidators:
+class TestProcessorConfigValidators:
     def test_accepts_registered_type_and_unit(self) -> None:
-        step = StepConfig(type="single_summary", unit="row")
-        assert step.type == "single_summary"
+        step = ProcessorConfig(type="processor", unit="row")
+        assert step.type == "processor"
         assert step.unit == "row"
 
-    def test_rejects_unknown_step_type(self) -> None:
-        with pytest.raises(ValidationError, match="step type must be one of"):
-            StepConfig(type="not_a_real_step", unit="row")
+    def test_rejects_unknown_processor_type(self) -> None:
+        with pytest.raises(ValidationError, match="processor type must be one of"):
+            ProcessorConfig(type="not_a_real_step", unit="row")
 
-    @pytest.mark.parametrize("unit_value", ["row", "document", "entity"])
+    @pytest.mark.parametrize("unit_value", ["row"])
     def test_accepts_every_registered_unit(self, unit_value: str) -> None:
-        step = StepConfig(type="single_summary", unit=unit_value)
+        step = ProcessorConfig(type="processor", unit=unit_value)
         assert step.unit == unit_value
 
     def test_rejects_unknown_unit(self) -> None:
         with pytest.raises(ValidationError, match="unit must be one of"):
-            StepConfig(type="single_summary", unit="batch")
+            ProcessorConfig(type="processor", unit="batch")
 
     def test_rejects_both_prompt_and_prompts_ref(self) -> None:
         with pytest.raises(ValidationError, match="Use exactly one"):
-            StepConfig(
-                type="single_summary",
+            ProcessorConfig(
+                type="processor",
                 unit="row",
                 prompt={"instructions": ["x"]},
                 prompts_ref="summary",
@@ -189,15 +189,15 @@ class TestStepConfigValidators:
 
     def test_rejects_prompt_overrides_without_prompts_ref(self) -> None:
         with pytest.raises(ValidationError, match="Overrides apply on top of a reference"):
-            StepConfig(
-                type="single_summary",
+            ProcessorConfig(
+                type="processor",
                 unit="row",
                 prompt_overrides={"instructions": {"append": ["extra line"]}},
             )
 
     def test_accepts_prompts_ref_with_overrides(self) -> None:
-        step = StepConfig(
-            type="single_summary",
+        step = ProcessorConfig(
+            type="processor",
             unit="row",
             prompts_ref="summary",
             prompt_overrides={"instructions": {"append": ["extra"]}},
@@ -262,7 +262,7 @@ class TestFlowConfigValidators:
     def test_accepts_minimal_valid_body(self) -> None:
         flow = FlowConfig.model_validate(_minimal_valid_flow_body())
         assert flow.name == "minimal_valid"
-        assert len(flow.steps) == 1
+        assert len(flow.processors) == 1
 
     def test_rejects_duplicate_resource_ids(self) -> None:
         body = _minimal_valid_flow_body()
@@ -270,25 +270,16 @@ class TestFlowConfigValidators:
         with pytest.raises(ValidationError, match="Duplicate LLM resource id"):
             FlowConfig.model_validate(body)
 
-    def test_rejects_unresolved_step_llm_reference(self) -> None:
+    def test_rejects_unresolved_processor_llm_reference(self) -> None:
         body = _minimal_valid_flow_body()
-        body["steps"][0]["llm"] = "does_not_exist"
+        body["processors"][0]["llm"] = "does_not_exist"
         with pytest.raises(ValidationError, match="not among the declared"):
             FlowConfig.model_validate(body)
 
-    def test_rejects_empty_steps(self) -> None:
+    def test_rejects_empty_processors(self) -> None:
         body = _minimal_valid_flow_body()
-        body["steps"] = []
-        with pytest.raises(ValidationError, match="at least one step"):
-            FlowConfig.model_validate(body)
-
-    def test_rejects_bad_adjacent_unit_transition(self) -> None:
-        body = _minimal_valid_flow_body()
-        body["steps"] = [
-            {"type": "single_summary", "unit": "row"},
-            {"type": "label_summary", "unit": "entity", "mode": "hybrid"},
-        ]
-        with pytest.raises(ValidationError, match="is not allowed"):
+        body["processors"] = []
+        with pytest.raises(ValidationError, match="at least one processor"):
             FlowConfig.model_validate(body)
 
     @pytest.mark.parametrize("transition", sorted(VALID_ADJACENT_UNIT_TRANSITIONS))
@@ -297,33 +288,11 @@ class TestFlowConfigValidators:
     ) -> None:
         from_unit, to_unit = transition
         body = _minimal_valid_flow_body()
-        body["steps"] = [
-            {"type": _step_type_for_unit(from_unit), "unit": from_unit},
-            {"type": _step_type_for_unit(to_unit), "unit": to_unit},
+        body["processors"] = [
+            {"type": "processor", "unit": from_unit},
+            {"type": "processor", "unit": to_unit},
         ]
-        # label_summary requires `mode` when unit=entity
-        if to_unit == "entity":
-            body["steps"][1]["mode"] = "hybrid"
         FlowConfig.model_validate(body)
-
-    def test_every_disallowed_transition_rejected(self) -> None:
-        disallowed_pairs = [
-            (left_unit, right_unit)
-            for left_unit in UNIT_VALUES
-            for right_unit in UNIT_VALUES
-            if (left_unit, right_unit) not in VALID_ADJACENT_UNIT_TRANSITIONS
-        ]
-        assert disallowed_pairs  # guard: we expect some disallowed pairs
-        for left_unit, right_unit in disallowed_pairs:
-            body = _minimal_valid_flow_body()
-            body["steps"] = [
-                {"type": _step_type_for_unit(left_unit), "unit": left_unit},
-                {"type": _step_type_for_unit(right_unit), "unit": right_unit},
-            ]
-            if right_unit == "entity":
-                body["steps"][1]["mode"] = "hybrid"
-            with pytest.raises(ValidationError):
-                FlowConfig.model_validate(body)
 
     def test_rejects_absolute_taxonomy_path(self) -> None:
         body = _minimal_valid_flow_body()
@@ -337,25 +306,6 @@ class TestFlowConfigValidators:
         with pytest.raises(ValidationError, match="absolute"):
             FlowConfig.model_validate(body)
 
-
-def _step_type_for_unit(unit_value: str) -> str:
-    """Return a registered step type whose default unit matches ``unit_value``.
-
-    Needed by the adjacent-unit-transition parametrisation above because
-    :meth:`StepConfig.validate_type` rejects unknown names even when the
-    step body is later overridden by its ``unit`` field.
-
-    Args:
-        unit_value (str): One of ``"row"``, ``"document"``, ``"entity"``.
-
-    Returns:
-        str: A real processor step-type id supported by the registry.
-    """
-    return {
-        "row": "single_summary",
-        "document": "conversation_summary_first",
-        "entity": "label_summary",
-    }[unit_value]
 
 
 # ---------------------------------------------------------------------

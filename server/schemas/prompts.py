@@ -50,7 +50,7 @@ class PromptEntry(BaseModel):
             the model should emit. ``None`` for prompts that do not
             define an ``output_format`` (for example the
             ``classification`` key's output shape lives in
-            :attr:`src.flow_loader.StepConfig.io_schema` instead).
+            :attr:`src.flow_loader.ProcessorConfig.io_schema` instead).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -70,7 +70,7 @@ class PromptsResponse(BaseModel):
             tab's override editor.
         prompts (Dict[str, PromptEntry]): Every key in the prompts
             file, mapped to its entry. Keys match the values users
-            write under :attr:`src.flow_loader.StepConfig.prompts_ref`
+            write under :attr:`src.flow_loader.ProcessorConfig.prompts_ref`
             (bare-key form).
     """
 

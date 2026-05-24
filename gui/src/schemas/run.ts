@@ -31,6 +31,7 @@ export const runStatusDtoSchema = z.object({
   started_at: z.string().nullable().optional(),
   finished_at: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
+  warnings: z.array(z.string()).default([]),
   completed_entity_count: z.number().int().nonnegative().default(0),
   total_row_count: z.number().int().nonnegative().default(0),
 });

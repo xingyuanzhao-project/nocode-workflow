@@ -48,37 +48,38 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 PROVIDER_ENV_VARS: Dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+    "google": "GOOGLE_API_KEY",
 }
 """Cloud provider name to environment variable mapping."""
 
 PROVIDER_AUTH_TEST_URLS: Dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1/auth/key",
     "openai": "https://api.openai.com/v1/models",
+    "claude": "https://api.anthropic.com/v1/models",
+    "google": "https://generativelanguage.googleapis.com/v1beta/models",
 }
 """Auth-gated endpoint per cloud provider for key validation."""
 
-LOCAL_ENDPOINT_DEFAULTS: Dict[str, str] = {
-    "local_vllm": "http://localhost:8000/v1",
-    "ollama": "http://localhost:11434/v1",
-    "vllm": "http://localhost:8000/v1",
-    "llama_cpp": "http://localhost:8080/v1",
+LOCAL_ENDPOINT_ENV_VARS: Dict[str, str] = {
+    "ollama": "OLLAMA_API_BASE",
+    "vllm": "VLLM_API_BASE",
+    "llama_cpp": "LLAMA_CPP_API_BASE",
 }
-"""Default base URLs per local provider."""
-
-_local_endpoint_overrides: Dict[str, str] = {}
-"""Session-scoped URL overrides for local providers set via the API."""
+"""Environment variable names that persist the user-configured local URLs."""
 
 
 def _get_local_endpoints() -> List[LocalEndpointStatusItem]:
     """Build the local endpoint status list."""
     items = []
-    for provider_name, default_url in sorted(LOCAL_ENDPOINT_DEFAULTS.items()):
-        override = _local_endpoint_overrides.get(provider_name)
+    for provider_name in sorted(LOCAL_ENDPOINT_ENV_VARS):
+        env_var = LOCAL_ENDPOINT_ENV_VARS[provider_name]
+        configured_url = os.environ.get(env_var, "").strip()
         items.append(
             LocalEndpointStatusItem(
                 provider=provider_name,  # type: ignore[arg-type]
-                api_base=override or default_url,
-                configured=provider_name in _local_endpoint_overrides,
+                api_base=configured_url,
+                configured=bool(configured_url),
             )
         )
     return items
@@ -92,7 +93,9 @@ def list_providers() -> ProviderStatusResponse:
         ProviderStatusResponse: Cloud and local provider status.
     """
     cloud_items = []
-    for provider_name, env_var_name in sorted(PROVIDER_ENV_VARS.items()):
+    cloud_provider_order = ["openrouter", "openai", "claude", "google"]
+    for provider_name in cloud_provider_order:
+        env_var_name = PROVIDER_ENV_VARS[provider_name]
         current_value = os.environ.get(env_var_name, "")
         cloud_items.append(
             ProviderStatusItem(
@@ -163,6 +166,26 @@ def set_api_key(request: ApiKeySetRequest) -> ProviderStatusResponse:
     return list_providers()
 
 
+def _build_test_request(
+    provider: str, api_key: str
+) -> tuple[str, Dict[str, str]]:
+    """Return (url, headers) for the provider's key-validation request.
+
+    Anthropic uses ``x-api-key`` + ``anthropic-version`` headers.
+    Google uses a ``key`` query parameter.
+    All others use a standard Bearer token.
+    """
+    base_url = PROVIDER_AUTH_TEST_URLS[provider]
+    if provider == "claude":
+        return base_url, {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+    if provider == "google":
+        return f"{base_url}?key={api_key}", {}
+    return base_url, {"Authorization": f"Bearer {api_key}"}
+
+
 @router.post("/api-key/test", response_model=ApiKeyTestResponse)
 async def test_api_key(request: ApiKeyTestRequest) -> ApiKeyTestResponse:
     """Validate a cloud API key against the provider's auth endpoint.
@@ -173,11 +196,10 @@ async def test_api_key(request: ApiKeyTestRequest) -> ApiKeyTestResponse:
     Returns:
         ApiKeyTestResponse: Validation result.
     """
-    auth_test_url = PROVIDER_AUTH_TEST_URLS[request.provider]
-    headers = {"Authorization": f"Bearer {request.api_key}"}
+    test_url, headers = _build_test_request(request.provider, request.api_key)
     try:
         async with httpx.AsyncClient(timeout=15.0) as http_client:
-            response = await http_client.get(auth_test_url, headers=headers)
+            response = await http_client.get(test_url, headers=headers)
         if response.status_code == 200:
             return ApiKeyTestResponse(
                 provider=request.provider,
@@ -214,7 +236,7 @@ async def test_api_key(request: ApiKeyTestRequest) -> ApiKeyTestResponse:
 def set_local_endpoint(
     request: LocalEndpointSetRequest,
 ) -> ProviderStatusResponse:
-    """Store a local endpoint URL for the current session.
+    """Store a local endpoint URL in ``os.environ`` and persist to ``.env``.
 
     Args:
         request (LocalEndpointSetRequest): Provider and base URL.
@@ -222,7 +244,10 @@ def set_local_endpoint(
     Returns:
         ProviderStatusResponse: Updated status list.
     """
-    _local_endpoint_overrides[request.provider] = request.api_base.rstrip("/")
+    env_var = LOCAL_ENDPOINT_ENV_VARS[request.provider]
+    value = request.api_base.rstrip("/")
+    os.environ[env_var] = value
+    _persist_env_var_to_dotenv(env_var, value)
     return list_providers()
 
 

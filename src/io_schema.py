@@ -30,9 +30,9 @@ How the rest of the system uses this module
 -------------------------------------------
 
 :mod:`src.flow_loader` declares an ``io_schema`` field on
-:class:`src.flow_loader.StepConfig` typed as ``Optional[IOSchema]`` so
-users can override the schema per step. :mod:`src.flow_builder` resolves
-the effective ``io_schema`` (step override → registry default →
+:class:`src.flow_loader.ProcessorConfig` typed as ``Optional[IOSchema]`` so
+users can override the schema per processor. :mod:`src.flow_builder` resolves
+the effective ``io_schema`` (processor override → registry default →
 ``None``) and injects it into each processor's runtime config under the
 key ``io_schema_resolved``. Each ``_get_*_args`` method in
 :mod:`src.processors` reads that key and, when present, calls
@@ -302,6 +302,17 @@ def to_response_format(
         >>> to_response_format(label_synthesis_schema, "label_synthesis") == expected_lsn
         True
     """
+    _EXTRA_KEYS = {"data_type", "options", "range", "interval"}
+
+    clean_properties: Dict[str, Any] = {}
+    for field_name, field_spec in io_schema.output.items():
+        if isinstance(field_spec, dict):
+            clean_properties[field_name] = {
+                k: v for k, v in field_spec.items() if k not in _EXTRA_KEYS
+            }
+        else:
+            clean_properties[field_name] = field_spec
+
     required = (
         io_schema.required_output
         if io_schema.required_output
@@ -313,7 +324,7 @@ def to_response_format(
             "name": schema_name,
             "schema": {
                 "type": "object",
-                "properties": dict(io_schema.output),
+                "properties": clean_properties,
                 "required": required,
             },
         },
@@ -323,23 +334,40 @@ def to_response_format(
 def to_prompt_output_format_text(io_schema: IOSchema) -> str:
     """Convert the output half of an :class:`IOSchema` into a prompt-embed string.
 
-    The result is a JSON string dump of :attr:`IOSchema.output` (without
-    indentation, with non-ASCII characters preserved). It is shaped to
-    be embedded verbatim inside the ``output_format`` slot of the prompt
-    body so the LLM sees the same contract declared in YAML.
+    Produces a structured description for each output field that includes
+    the JSON Schema type plus any constraints (valid options for category
+    fields, range/interval for numeric fields). This gives the LLM
+    explicit guidance on what values are acceptable.
 
     Args:
         io_schema (IOSchema): The validated I/O schema block.
 
     Returns:
-        str: JSON-dumped text of :attr:`IOSchema.output`.
-
-    Example:
-        >>> schema = IOSchema(output={
-        ...     "info_found": {"type": "string"},
-        ...     "result": {"type": "string"},
-        ... })
-        >>> to_prompt_output_format_text(schema)
-        '{"info_found": {"type": "string"}, "result": {"type": "string"}}'
+        str: JSON-dumped text describing each output field.
     """
-    return json.dumps(io_schema.output, ensure_ascii=False)
+    descriptors: Dict[str, Any] = {}
+    for field_name, field_spec in io_schema.output.items():
+        if not isinstance(field_spec, dict):
+            descriptors[field_name] = field_spec
+            continue
+
+        entry: Dict[str, Any] = {"type": field_spec.get("type", "string")}
+        data_type = field_spec.get("data_type")
+        if data_type:
+            entry["data_type"] = data_type
+
+        options = field_spec.get("options")
+        if isinstance(options, list) and options:
+            entry["valid_options"] = options
+
+        range_val = field_spec.get("range")
+        if range_val:
+            entry["range"] = range_val
+
+        interval_val = field_spec.get("interval")
+        if interval_val:
+            entry["interval"] = interval_val
+
+        descriptors[field_name] = entry
+
+    return json.dumps(descriptors, ensure_ascii=False)

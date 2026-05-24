@@ -41,11 +41,11 @@ def main() -> None:
             skipped_count += 1
             continue
         schema = FlowSchema.load_from_path(flow_path)
-        step_types = [step.type for step in schema.flow.steps]
-        step_units = [step.unit for step in schema.flow.steps]
+        proc_types = [proc.type for proc in schema.flow.processors]
+        proc_units = [proc.unit for proc in schema.flow.processors]
         print(
-            f"OK    {flow_path.name}: types={step_types} "
-            f"units={step_units}"
+            f"OK    {flow_path.name}: types={proc_types} "
+            f"units={proc_units}"
         )
         loaded_count += 1
 

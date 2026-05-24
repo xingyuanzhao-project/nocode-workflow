@@ -24,6 +24,7 @@ Invariants enforced by this module
 
 from __future__ import annotations
 
+import json
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
@@ -53,9 +54,9 @@ def _resolve_stored_path(paths: ServerPaths, stored_path: str) -> Path:
     """Resolve a project-root-relative stored_path to an absolute Path."""
     project_root = _get_project_root(paths)
     resolved = (project_root / stored_path).resolve()
-    if not resolved.is_relative_to(paths.data_dir):
+    if not resolved.is_relative_to(project_root.resolve()):
         raise HTTPException(
-            status_code=400, detail="Path does not resolve inside data directory"
+            status_code=400, detail="Path does not resolve inside the project"
         )
     return resolved
 
@@ -66,41 +67,70 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 @router.get("/columns", response_model=ColumnHeadersResponse)
 def get_column_headers(
-    path: str = Query(..., description="Project-root-relative stored_path of the CSV"),
+    path: str = Query(..., description="Project-root-relative stored_path of a data file"),
     paths: ServerPaths = Depends(get_server_paths),
 ) -> ColumnHeadersResponse:
-    """Return column headers for a stored CSV file.
+    """Return column/field names for a stored data file.
 
-    Only CSV files are supported; JSON/JSONL files do not have fixed
-    column headers.
+    Supports CSV, JSON (array-of-records), and JSONL. For CSV only the
+    header row is read. For JSON/JSONL only the first record is read to
+    extract top-level field names.
 
     Args:
         path: The ``stored_path`` value as returned by the file list or
-            upload endpoint (e.g. ``server/data/uploads/<id>.csv``).
+            upload endpoint.
         paths: Injected server paths.
 
     Returns:
-        ColumnHeadersResponse: List of column header strings.
+        ColumnHeadersResponse: List of column/field name strings.
     """
     resolved = _resolve_stored_path(paths, path)
 
     if not resolved.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
-    if resolved.suffix.lower() != ".csv":
-        raise HTTPException(
-            status_code=400,
-            detail="Column header introspection is only supported for CSV files",
-        )
+    extension = resolved.suffix.lower()
 
-    try:
-        df = pd.read_csv(resolved, nrows=0)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Cannot read CSV headers: {exc}"
-        ) from exc
+    if extension == ".csv":
+        try:
+            df = pd.read_csv(resolved, nrows=0)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Cannot read CSV headers: {exc}"
+            ) from exc
+        return ColumnHeadersResponse(columns=[str(c) for c in df.columns.tolist()])
 
-    return ColumnHeadersResponse(columns=[str(c) for c in df.columns.tolist()])
+    if extension == ".jsonl":
+        try:
+            with open(resolved, "r", encoding="utf-8") as fh:
+                first_line = fh.readline().strip()
+            if not first_line:
+                return ColumnHeadersResponse(columns=[])
+            record = json.loads(first_line)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Cannot read JSONL fields: {exc}"
+            ) from exc
+        if isinstance(record, dict):
+            return ColumnHeadersResponse(columns=list(record.keys()))
+        return ColumnHeadersResponse(columns=[])
+
+    if extension == ".json":
+        try:
+            with open(resolved, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Cannot read JSON fields: {exc}"
+            ) from exc
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            return ColumnHeadersResponse(columns=list(data[0].keys()))
+        return ColumnHeadersResponse(columns=[])
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported file extension {extension!r} for field introspection",
+    )
 
 
 @router.get("/list", response_model=DataFileListResponse)
