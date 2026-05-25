@@ -2,3 +2,9 @@
 # the production Docker image so they never seed on the webapp.
 workflows/
 codebooks/
+
+# Runtime directories — user-specific, ephemeral. Never in the image.
+server/workflows/
+server/codebooks/
+server/data/
+server/runs/
