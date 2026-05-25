@@ -49,7 +49,7 @@ export interface NodeCardProps {
 export function NodeCard({
   category,
   title,
-  type_id,
+  type_id: _type_id,
   children,
   selected = false,
   has_input_handle = true,

@@ -17,10 +17,7 @@ import {
 } from "reactflow";
 
 import { cn } from "@/lib/utils";
-import {
-  isValidUnitTransition,
-  type UnitValue,
-} from "@/lib/unit_compatibility";
+import { isValidUnitTransition } from "@/lib/unit_compatibility";
 import {
   buildEdgeBadgeText,
   type EdgeEndpointSummary,
