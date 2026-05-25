@@ -13,8 +13,13 @@ __pycache__/
 results_custom/
 processing.log
 
+# Runtime-generated server directories (ephemeral, user-specific)
+server/data/
+server/runs/
+server/codebooks/
+server/workflows/
+codebooks/
+workflows/
+
 # Large data files (over GitHub 100 MB limit)
 data/ncsl_bills.jsonl
-
-# Server runtime artefacts (flows, taxonomies, uploads, per-run outputs).
-server/data/

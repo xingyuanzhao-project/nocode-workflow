@@ -3,7 +3,7 @@
 The GUI uploads a data file (CSV, JSON, or JSONL) through
 ``POST /api/files/upload``. This service validates the size, parses
 the file into a DataFrame, writes the raw bytes to
-:attr:`server.storage.paths.ServerPaths.uploads_dir`, and returns a
+:attr:`server.storage.paths.ServerPaths.data_dir`, and returns a
 small DTO describing the columns so the GUI can display column
 information.
 
@@ -27,7 +27,7 @@ Invariants enforced by this module
   :attr:`server.settings.ServerSettings.max_upload_bytes` are rejected
   with :class:`ValueError`.
 - Every stored file lives at
-  ``<uploads_dir>/<upload_id><ext>`` where ``upload_id`` is a UUID4
+  ``<data_dir>/<upload_id><ext>`` where ``upload_id`` is a UUID4
   and ``<ext>`` is the original file extension (``.csv``, ``.json``,
   or ``.jsonl``).
 - Sample values per column are capped at :data:`SAMPLE_VALUES_PER_COLUMN`
@@ -117,7 +117,7 @@ class CSVUploader:
 
     Attributes:
         paths (ServerPaths): On-disk layout; only
-            :attr:`ServerPaths.uploads_dir` is read.
+            :attr:`ServerPaths.data_dir` is read.
         settings (ServerSettings): Process settings; only
             :attr:`ServerSettings.max_upload_bytes` is read.
 
@@ -169,11 +169,11 @@ class CSVUploader:
         extension = PurePosixPath(filename).suffix.lower()
 
         upload_id = uuid.uuid4().hex
-        destination = self.paths.uploads_dir / f"{upload_id}{extension}"
+        destination = self.paths.data_dir / f"{upload_id}{extension}"
         with destination.open("wb") as file_handle:
             file_handle.write(content)
         stored_path = (
-            f"{self.paths.uploads_dir_relative_posix}/{upload_id}{extension}"
+            f"{self.paths.data_dir_relative_posix}/{upload_id}{extension}"
         )
 
         columns = [
@@ -197,20 +197,19 @@ class CSVUploader:
         """
         items: list[DataFileListItem] = []
 
-        if self.paths.uploads_dir.exists():
-            for file_path in sorted(self.paths.uploads_dir.iterdir()):
-                if file_path.suffix.lower() in SUPPORTED_UPLOAD_EXTENSIONS:
-                    stored_path = (
-                        f"{self.paths.uploads_dir_relative_posix}/{file_path.name}"
+        for file_path in sorted(self.paths.data_dir.iterdir()):
+            if file_path.suffix.lower() in SUPPORTED_UPLOAD_EXTENSIONS:
+                stored_path = (
+                    f"{self.paths.data_dir_relative_posix}/{file_path.name}"
+                )
+                items.append(
+                    DataFileListItem(
+                        filename=file_path.name,
+                        stored_path=stored_path,
+                        row_count=None,
+                        source="uploaded",
                     )
-                    items.append(
-                        DataFileListItem(
-                            filename=file_path.name,
-                            stored_path=stored_path,
-                            row_count=None,
-                            source="uploaded",
-                        )
-                    )
+                )
 
         project_root = self.paths.data_dir
         depth = len(PurePosixPath(self.paths.data_dir_relative_posix).parts)

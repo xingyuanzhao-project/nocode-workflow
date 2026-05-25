@@ -6,14 +6,13 @@ singleton once, stashes them on ``app.state``, installs CORS and
 exception handlers, mounts every :mod:`server.routes` router, and
 returns the configured :class:`fastapi.FastAPI` instance.
 
-On first run, :func:`_seed_presets` copies shipped template flows and
-the default codebook into the user data directories so they appear as
+On first run, :func:`_seed_presets` copies shipped preset workflows,
+codebooks, and data into the runtime directories so they appear as
 regular user-owned items.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 from pathlib import Path
@@ -35,8 +34,8 @@ from server.routes import prompts as prompts_routes
 from server.routes import results as results_routes
 from server.routes import schema as schema_routes
 from server.routes import settings as settings_routes
-from server.routes import taxonomy as taxonomy_routes
-from server.routes import templates as templates_routes
+from server.routes import codebook as codebook_routes
+from server.routes import workflows as workflows_routes
 from server.services.csv_uploader import CSVUploader
 from server.services.flow_repository import FlowRepository
 from server.services.flow_validation import FlowValidator
@@ -47,10 +46,10 @@ from server.services.prompts_repository import PromptsRepository
 from server.services.results_preview import ResultsPreviewService
 from server.services.run_dispatcher import RunDispatcher
 from server.services.run_registry import build_run_registry
-from server.services.taxonomy_repository import TaxonomyRepository
-from server.services.template_repository import (
-    DEFAULT_TEMPLATES_DIR,
-    TemplateRepository,
+from server.services.codebook_repository import CodebookRepository
+from server.services.workflow_repository import (
+    DEFAULT_WORKFLOWS_SOURCE_DIR,
+    WorkflowRepository,
 )
 from server.settings import get_settings
 from server.storage.paths import ServerPaths
@@ -58,42 +57,46 @@ from server.storage.paths import ServerPaths
 
 _log = logging.getLogger(__name__)
 
+_PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
-def _seed_presets(paths: ServerPaths, templates_dir: Path) -> None:
-    """Copy shipped templates and codebook into user data dirs if absent.
+WORKFLOWS_SOURCE_DIR: Path = _PROJECT_ROOT / "workflows"
+CODEBOOKS_SOURCE_DIR: Path = _PROJECT_ROOT / "codebooks"
+DATA_SOURCE_DIR: Path = _PROJECT_ROOT / "data"
 
-    Runs once at startup so preset content appears as regular user-owned
-    items that can be opened, edited, or deleted.
 
-    Args:
-        paths: On-disk layout (flows_dir, taxonomies_dir, uploads_dir).
-        templates_dir: Directory containing preset template YAMLs.
+def _seed_presets(paths: ServerPaths) -> None:
+    """Copy shipped preset workflows, codebooks, and data into runtime dirs.
+
+    Copies only files not already present in the destination, so
+    user-modified versions are never overwritten.
+
+    Source directories are fixed relative to the project root:
+    - workflows/  -> server/workflows/
+    - codebooks/  -> server/codebooks/
+    - data/       -> server/data/
+
+    On Render, .dockerignore excludes these source directories from the
+    image. glob() returns nothing, so nothing is seeded.  No guards
+    needed — the filesystem state IS the decision.
     """
-    for yml in sorted(templates_dir.glob("*.yml")):
-        dest = paths.flows_dir / yml.name
-        if not dest.exists():
-            shutil.copy2(yml, dest)
-            _log.info("Seeded preset flow: %s", yml.name)
+    for workflow_yaml in sorted(WORKFLOWS_SOURCE_DIR.glob("*.yml")):
+        destination = paths.workflows_dir / workflow_yaml.name
+        if not destination.exists():
+            shutil.copy2(workflow_yaml, destination)
+            _log.info("Seeded preset workflow: %s", workflow_yaml.name)
 
-    preset_codebook = Path(__file__).resolve().parent.parent / "config" / "taxonomy.json"
-    if preset_codebook.is_file():
-        dest = paths.taxonomies_dir / "default-codebook.json"
-        if not dest.exists():
-            with preset_codebook.open("r", encoding="utf-8") as src:
-                body = json.load(src)
-            body["_name"] = "Default codebook"
-            with dest.open("w", encoding="utf-8") as out:
-                json.dump(body, out, indent=2, sort_keys=False)
-            _log.info("Seeded preset codebook: %s", dest.name)
+    for codebook_json in sorted(CODEBOOKS_SOURCE_DIR.glob("*.json")):
+        destination = paths.codebooks_dir / codebook_json.name
+        if not destination.exists():
+            shutil.copy2(codebook_json, destination)
+            _log.info("Seeded preset codebook: %s", codebook_json.name)
 
-    preloaded_dir = Path(__file__).resolve().parent.parent / "data"
-    if preloaded_dir.is_dir():
-        for data_file in sorted(preloaded_dir.iterdir()):
-            if data_file.is_file() and data_file.suffix in (".csv", ".json", ".jsonl"):
-                dest = paths.uploads_dir / data_file.name
-                if not dest.exists():
-                    shutil.copy2(data_file, dest)
-                    _log.info("Seeded preset data file: %s", data_file.name)
+    for data_file in sorted(DATA_SOURCE_DIR.glob("*")):
+        if data_file.is_file() and data_file.suffix in (".csv", ".json", ".jsonl"):
+            destination = paths.data_dir / data_file.name
+            if not destination.exists():
+                shutil.copy2(data_file, destination)
+                _log.info("Seeded preset data file: %s", data_file.name)
 
 
 def create_app() -> FastAPI:
@@ -107,12 +110,12 @@ def create_app() -> FastAPI:
 
     paths = ServerPaths.from_settings(settings)
 
-    _seed_presets(paths, DEFAULT_TEMPLATES_DIR)
+    _seed_presets(paths)
 
     node_catalog = build_default_node_catalog()
     flow_validator = FlowValidator()
     flow_repository = FlowRepository(paths=paths, validator=flow_validator)
-    taxonomy_repository = TaxonomyRepository(paths=paths)
+    codebook_repository = CodebookRepository(paths=paths)
     csv_uploader = CSVUploader(paths=paths, settings=settings)
     run_registry = build_run_registry(paths=paths, settings=settings)
     run_dispatcher = RunDispatcher(
@@ -122,8 +125,8 @@ def create_app() -> FastAPI:
         validator=flow_validator,
     )
     results_preview_service = ResultsPreviewService(paths=paths)
-    template_repository = TemplateRepository(
-        templates_dir=DEFAULT_TEMPLATES_DIR,
+    workflow_repository = WorkflowRepository(
+        workflows_dir=DEFAULT_WORKFLOWS_SOURCE_DIR,
         validator=flow_validator,
     )
     prompts_repository = PromptsRepository()
@@ -148,12 +151,12 @@ def create_app() -> FastAPI:
     application.state.node_catalog = node_catalog
     application.state.flow_validator = flow_validator
     application.state.flow_repository = flow_repository
-    application.state.taxonomy_repository = taxonomy_repository
+    application.state.codebook_repository = codebook_repository
     application.state.csv_uploader = csv_uploader
     application.state.run_registry = run_registry
     application.state.run_dispatcher = run_dispatcher
     application.state.results_preview_service = results_preview_service
-    application.state.template_repository = template_repository
+    application.state.workflow_repository = workflow_repository
     application.state.prompts_repository = prompts_repository
     application.state.model_list_proxy = model_list_proxy
     application.state.upstream_http_client = upstream_http_client
@@ -170,18 +173,18 @@ def create_app() -> FastAPI:
     install_exception_handlers(application)
 
     application.include_router(schema_routes.router)
-    # Register template, results, and logs routers BEFORE flow_routes so
-    # the ``/api/flow/templates`` and ``/api/flow/runs/...`` paths are
+    # Register workflow, results, and logs routers BEFORE flow_routes so
+    # the ``/api/flow/workflows`` and ``/api/flow/runs/...`` paths are
     # matched literally instead of falling through to
-    # ``GET /api/flow/{flow_id}`` with ``flow_id='templates'`` or
+    # ``GET /api/flow/{flow_id}`` with ``flow_id='workflows'`` or
     # ``flow_id='runs'``.
-    application.include_router(templates_routes.router)
+    application.include_router(workflows_routes.router)
     application.include_router(results_routes.router)
     application.include_router(logs_routes.router)
     application.include_router(flow_routes.router)
     application.include_router(prompts_routes.router)
     application.include_router(models_routes.router)
-    application.include_router(taxonomy_routes.router)
+    application.include_router(codebook_routes.router)
     application.include_router(files_routes.router)
     application.include_router(settings_routes.router)
     application.include_router(health_routes.router)

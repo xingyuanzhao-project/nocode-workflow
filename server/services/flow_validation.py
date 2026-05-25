@@ -22,7 +22,7 @@ How the rest of the system uses this module
   the ``POST /api/schema/validate`` handler.
 - :mod:`server.services.flow_repository` calls it before writing a flow
   YAML to disk so invalid flows never land in
-  :attr:`server.storage.paths.ServerPaths.flows_dir`.
+  :attr:`server.storage.paths.ServerPaths.workflows_dir`.
 
 Invariants enforced by this module
 ----------------------------------

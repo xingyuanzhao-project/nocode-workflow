@@ -14,7 +14,7 @@ Contents and relationships
 - :func:`_resolve_taxonomy_override` — walks ``flow.nodes[]`` for a
   ``codebook`` node, reads its ``config.codebook_id``, and loads the
   taxonomy body from
-  :class:`server.services.taxonomy_repository.TaxonomyRepository`.
+  :class:`server.services.codebook_repository.CodebookRepository`.
 
 How the rest of the system uses this module
 -------------------------------------------
@@ -68,7 +68,7 @@ from server.celery_app import celery_app
 from server.settings import get_settings
 from server.storage.paths import ServerPaths
 from server.storage.run_paths import RunPaths
-from server.services.taxonomy_repository import TaxonomyRepository
+from server.services.codebook_repository import CodebookRepository
 
 
 def _resolve_taxonomy_override(
@@ -78,14 +78,14 @@ def _resolve_taxonomy_override(
 
     Walks ``flow.nodes[]`` looking for the single ``codebook`` node.
     When that node's ``config.codebook_id`` is set, the taxonomy body
-    for that id is loaded from the :class:`TaxonomyRepository`. When
+    for that id is loaded from the :class:`CodebookRepository`. When
     only ``config.codebook_path`` is set, the file is loaded from disk
     by :func:`build_flow` itself, so this function returns ``None``.
 
     Args:
         flow_yaml_path (Path): Path to the run's ``flow.yml``.
         paths (ServerPaths): Server layout, needed to construct a
-            :class:`TaxonomyRepository`.
+            :class:`CodebookRepository`.
 
     Returns:
         Optional[Dict[str, Any]]: The taxonomy body if a codebook id is
@@ -114,9 +114,9 @@ def _resolve_taxonomy_override(
             break
     if codebook_id is None:
         return None
-    repository = TaxonomyRepository(paths=paths)
+    repository = CodebookRepository(paths=paths)
     taxonomy_response = repository.get(codebook_id)
-    return taxonomy_response.taxonomy
+    return taxonomy_response.codebook
 
 
 @celery_app.task(
@@ -130,7 +130,7 @@ def execute_flow(self, run_id: str) -> None:  # noqa: ARG001  (bind=True injects
 
     When the flow YAML's ``taxonomy`` field is a ``taxonomy://<id>``
     URI, the taxonomy body is resolved from the server's
-    :class:`TaxonomyRepository` and passed as ``taxonomy_override`` to
+    :class:`CodebookRepository` and passed as ``taxonomy_override`` to
     :func:`build_flow`. Otherwise the builder loads the taxonomy from
     the filesystem path as before.
 

@@ -31,17 +31,15 @@ class TestProjectRootRelativePosix:
 
 class TestServerPathsFromSettings:
     def test_all_directories_exist_after_build(self, server_paths: ServerPaths) -> None:
+        assert server_paths.workflows_dir.is_dir()
+        assert server_paths.codebooks_dir.is_dir()
         assert server_paths.data_dir.is_dir()
-        assert server_paths.flows_dir.is_dir()
-        assert server_paths.taxonomies_dir.is_dir()
-        assert server_paths.uploads_dir.is_dir()
         assert server_paths.runs_dir.is_dir()
 
     def test_relative_posix_fields_are_forward_slash(self, server_paths: ServerPaths) -> None:
         assert "\\" not in server_paths.data_dir_relative_posix
-        assert "\\" not in server_paths.uploads_dir_relative_posix
         assert "\\" not in server_paths.runs_dir_relative_posix
-        assert server_paths.uploads_dir_relative_posix.endswith("/uploads")
+        assert server_paths.data_dir_relative_posix.endswith("/data")
         assert server_paths.runs_dir_relative_posix.endswith("/runs")
 
     def test_from_settings_rejects_data_dir_outside_project(
@@ -49,7 +47,7 @@ class TestServerPathsFromSettings:
     ) -> None:
         outside = tmp_path / "outside_project"
         outside.mkdir()
-        monkeypatch.setenv("ACADEMIC_PIPELINE_DATA_DIR", str(outside))
+        monkeypatch.setenv("ACADEMIC_PIPELINE_SERVER_ROOT", str(outside))
         settings = ServerSettings()
         with pytest.raises(ValueError, match="is not inside project root"):
             ServerPaths.from_settings(settings)

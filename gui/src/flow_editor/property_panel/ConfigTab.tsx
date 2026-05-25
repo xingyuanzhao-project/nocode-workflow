@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { getTaxonomy, listTaxonomies } from "@/api/taxonomies";
+import { getCodebook, listCodebooks } from "@/api/codebooks";
 import { useFlowMetadataStore } from "@/stores/flow_metadata_store";
 import { useGraphStore, type GraphNode } from "@/stores/graph_store";
 import { DataSourceConfigForm } from "./config_forms/DataSourceConfigForm";
@@ -20,8 +20,8 @@ function CodebookSelectorForm({ node }: { node: GraphNode }): JSX.Element {
   const update_node_data = useGraphStore((state) => state.update_node_data);
   const set_dirty = useFlowMetadataStore((state) => state.set_dirty);
   const codebooks_query = useQuery({
-    queryKey: ["taxonomy-list"],
-    queryFn: listTaxonomies,
+    queryKey: ["codebook-list"],
+    queryFn: listCodebooks,
     staleTime: 30_000,
   });
 
@@ -29,8 +29,8 @@ function CodebookSelectorForm({ node }: { node: GraphNode }): JSX.Element {
     typeof node.data.codebook_id === "string" ? node.data.codebook_id : "";
 
   const codebook_body_query = useQuery({
-    queryKey: ["taxonomy", selected_id],
-    queryFn: () => getTaxonomy(selected_id),
+    queryKey: ["codebook", selected_id],
+    queryFn: () => getCodebook(selected_id),
     enabled: Boolean(selected_id),
     staleTime: 60_000,
   });
@@ -40,8 +40,8 @@ function CodebookSelectorForm({ node }: { node: GraphNode }): JSX.Element {
     : [];
 
   const available_keys = useMemo(() => {
-    if (!codebook_body_query.data?.taxonomy) return [];
-    return Object.keys(codebook_body_query.data.taxonomy).filter(
+    if (!codebook_body_query.data?.codebook) return [];
+    return Object.keys(codebook_body_query.data.codebook).filter(
       (k) => !k.startsWith("_"),
     );
   }, [codebook_body_query.data]);

@@ -16,7 +16,7 @@ import { DataSourceNode } from "./data_source_node";
 import { GenericNode } from "./generic_node";
 import { LLMProviderNode } from "./llm_provider_node";
 import { ProcessingNode } from "./processing_node";
-import { TaxonomyNode } from "./taxonomy_node";
+import { CodebookNode } from "./codebook_node";
 
 /**
  * Node-type ids known to the front end. Each key matches the
@@ -38,7 +38,7 @@ const TYPE_TO_COMPONENT: Record<string, ComponentType<NodeProps>> = {
   csv_output: CSVOutputNode as ComponentType<NodeProps>,
   json_output: CSVOutputNode as ComponentType<NodeProps>,
   llm_call: LLMProviderNode as ComponentType<NodeProps>,
-  codebook: TaxonomyNode as ComponentType<NodeProps>,
+  codebook: CodebookNode as ComponentType<NodeProps>,
   processor: ProcessingNode as ComponentType<NodeProps>,
 };
 

@@ -24,8 +24,8 @@ const FlowEditorPage = lazy(() => import("@/pages/FlowEditorPage"));
 const RunsListPage = lazy(() => import("@/pages/RunsListPage"));
 const RunPage = lazy(() => import("@/pages/RunPage"));
 const DataPage = lazy(() => import("@/pages/DataPage"));
-const TaxonomyListPage = lazy(() => import("@/pages/TaxonomyListPage"));
-const TaxonomyEditorPage = lazy(() => import("@/pages/TaxonomyEditorPage"));
+const CodebookListPage = lazy(() => import("@/pages/CodebookListPage"));
+const CodebookEditorPage = lazy(() => import("@/pages/CodebookEditorPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 
 /**
@@ -63,10 +63,10 @@ const ROUTES: RouteObject[] = [
       { path: "runs", element: <RunsListPage /> },
       { path: "runs/:run_id", element: <RunPage /> },
       { path: "data", element: <DataPage /> },
-      { path: "codebook", element: <TaxonomyListPage /> },
+      { path: "codebook", element: <CodebookListPage /> },
       {
-        path: "codebook/:taxonomy_id",
-        element: <TaxonomyEditorPage />,
+        path: "codebook/:codebook_id",
+        element: <CodebookEditorPage />,
       },
       { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/flows" replace /> },

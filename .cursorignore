@@ -1,3 +1,9 @@
 # Explicitly un-ignore what is gitignored
 !references/
 !references/**
+!server/data/
+!server/runs/
+!server/codebooks/
+!server/workflows/
+!codebooks/
+!workflows/

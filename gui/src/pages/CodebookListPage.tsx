@@ -1,9 +1,9 @@
 /**
- * Saved-taxonomy list page.
+ * Saved-codebook list page.
  *
- * Lists every taxonomy saved on the backend and offers basic CRUD
+ * Lists every codebook saved on the backend and offers basic CRUD
  * (open / delete / new). The editor lives on
- * :mod:`./TaxonomyEditorPage`.
+ * :mod:`./CodebookEditorPage`.
  */
 
 import {
@@ -15,37 +15,37 @@ import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 
 import {
-  createTaxonomy,
-  deleteTaxonomy,
-  listTaxonomies,
-} from "@/api/taxonomies";
+  createCodebook,
+  deleteCodebook,
+  listCodebooks,
+} from "@/api/codebooks";
 import { Button } from "@/components/ui/button";
-import type { TaxonomyListItem } from "@/schemas/taxonomy";
+import type { CodebookListItem } from "@/schemas/codebook";
 
-const TAXONOMY_LIST_QUERY_KEY = ["taxonomy-list"] as const;
+const CODEBOOK_LIST_QUERY_KEY = ["codebook-list"] as const;
 
-export default function TaxonomyListPage(): JSX.Element {
+export default function CodebookListPage(): JSX.Element {
   const navigate = useNavigate();
   const query_client = useQueryClient();
 
   const list_query = useQuery({
-    queryKey: TAXONOMY_LIST_QUERY_KEY,
-    queryFn: listTaxonomies,
+    queryKey: CODEBOOK_LIST_QUERY_KEY,
+    queryFn: listCodebooks,
     staleTime: 30_000,
   });
 
   const create_mutation = useMutation({
-    mutationFn: () => createTaxonomy("Unnamed Codebook", {}),
+    mutationFn: () => createCodebook("Unnamed Codebook", {}),
     onSuccess: (response) => {
-      query_client.invalidateQueries({ queryKey: TAXONOMY_LIST_QUERY_KEY });
+      query_client.invalidateQueries({ queryKey: CODEBOOK_LIST_QUERY_KEY });
       navigate(`/codebook/${encodeURIComponent(response.id)}`);
     },
   });
 
   const delete_mutation = useMutation({
-    mutationFn: (taxonomy_id: string) => deleteTaxonomy(taxonomy_id),
+    mutationFn: (codebook_id: string) => deleteCodebook(codebook_id),
     onSuccess: () => {
-      query_client.invalidateQueries({ queryKey: TAXONOMY_LIST_QUERY_KEY });
+      query_client.invalidateQueries({ queryKey: CODEBOOK_LIST_QUERY_KEY });
     },
   });
 
@@ -66,7 +66,7 @@ export default function TaxonomyListPage(): JSX.Element {
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : list_query.isError ? (
           <div className="text-sm text-destructive">
-            Could not load taxonomies: {String(list_query.error)}
+            Could not load codebooks: {String(list_query.error)}
           </div>
         ) : (list_query.data ?? []).length === 0 ? (
           <div className="text-sm text-muted-foreground">
@@ -83,13 +83,13 @@ export default function TaxonomyListPage(): JSX.Element {
             </thead>
             <tbody>
               {(list_query.data ?? []).map(
-                (taxonomy_item: TaxonomyListItem) => (
-                  <tr key={taxonomy_item.id} className="border-b last:border-0">
+                (codebook_item: CodebookListItem) => (
+                  <tr key={codebook_item.id} className="border-b last:border-0">
                     <td className="py-2 pr-3 font-medium">
-                      {taxonomy_item.name}
+                      {codebook_item.name}
                     </td>
                     <td className="py-2 pr-3 text-xs text-muted-foreground">
-                      {new Date(taxonomy_item.updated_at).toLocaleString()}
+                      {new Date(codebook_item.updated_at).toLocaleString()}
                     </td>
                     <td className="py-2 text-right">
                       <div className="flex justify-end gap-2">
@@ -99,7 +99,7 @@ export default function TaxonomyListPage(): JSX.Element {
                           onClick={() =>
                             navigate(
                               `/codebook/${encodeURIComponent(
-                                taxonomy_item.id,
+                                codebook_item.id,
                               )}`,
                             )
                           }
@@ -112,10 +112,10 @@ export default function TaxonomyListPage(): JSX.Element {
                           onClick={() => {
                             if (
                               window.confirm(
-                                `Delete codebook "${taxonomy_item.name}"? This cannot be undone.`,
+                                `Delete codebook "${codebook_item.name}"? This cannot be undone.`,
                               )
                             ) {
-                              delete_mutation.mutate(taxonomy_item.id);
+                              delete_mutation.mutate(codebook_item.id);
                             }
                           }}
                         >

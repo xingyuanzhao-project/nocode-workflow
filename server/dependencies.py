@@ -48,8 +48,8 @@ from server.services.prompts_repository import PromptsRepository
 from server.services.results_preview import ResultsPreviewService
 from server.services.run_dispatcher import RunDispatcher
 from server.services.run_registry import RunRegistry
-from server.services.taxonomy_repository import TaxonomyRepository
-from server.services.template_repository import TemplateRepository
+from server.services.codebook_repository import CodebookRepository
+from server.services.workflow_repository import WorkflowRepository
 
 
 def get_node_catalog(request: Request) -> NodeCatalog:
@@ -89,16 +89,16 @@ def get_flow_repository(request: Request) -> FlowRepository:
     return request.app.state.flow_repository
 
 
-def get_taxonomy_repository(request: Request) -> TaxonomyRepository:
-    """Return the process-wide :class:`TaxonomyRepository` from ``app.state``.
+def get_codebook_repository(request: Request) -> CodebookRepository:
+    """Return the process-wide :class:`CodebookRepository` from ``app.state``.
 
     Args:
         request (Request): The incoming request.
 
     Returns:
-        TaxonomyRepository: The taxonomy repository service.
+        CodebookRepository: The codebook repository service.
     """
-    return request.app.state.taxonomy_repository
+    return request.app.state.codebook_repository
 
 
 def get_server_paths(request: Request) -> ServerPaths:
@@ -161,16 +161,16 @@ def get_results_preview_service(request: Request) -> ResultsPreviewService:
     return request.app.state.results_preview_service
 
 
-def get_template_repository(request: Request) -> TemplateRepository:
-    """Return the process-wide :class:`TemplateRepository` from ``app.state``.
+def get_workflow_repository(request: Request) -> WorkflowRepository:
+    """Return the process-wide :class:`WorkflowRepository` from ``app.state``.
 
     Args:
         request (Request): The incoming request.
 
     Returns:
-        TemplateRepository: The preset flow-template repository.
+        WorkflowRepository: The preset workflow repository.
     """
-    return request.app.state.template_repository
+    return request.app.state.workflow_repository
 
 
 def get_prompts_repository(request: Request) -> PromptsRepository:

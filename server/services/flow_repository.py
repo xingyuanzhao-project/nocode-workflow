@@ -1,6 +1,6 @@
 """CRUD over flow YAMLs on disk.
 
-Persists flows under :attr:`server.storage.paths.ServerPaths.flows_dir`
+Persists flows under :attr:`server.storage.paths.ServerPaths.workflows_dir`
 as YAML files named ``<flow_id>.yml``. The on-disk shape matches the
 files under ``config/flows/``: a top-level ``flow:`` key whose body is
 validated by :class:`src.flow_loader.FlowSchema`.
@@ -91,7 +91,7 @@ class FlowRepository:
 
     Attributes:
         paths (ServerPaths): On-disk layout; only
-            :attr:`ServerPaths.flows_dir` is read.
+            :attr:`ServerPaths.workflows_dir` is read.
         validator (FlowValidator): Used to validate every flow before
             writing.
 
@@ -124,9 +124,9 @@ class FlowRepository:
             flow_id (str): Identifier returned by :meth:`save`.
 
         Returns:
-            Path: ``<flows_dir>/<flow_id>.yml``.
+            Path: ``<workflows_dir>/<flow_id>.yml``.
         """
-        return self.paths.flows_dir / f"{flow_id}.yml"
+        return self.paths.workflows_dir / f"{flow_id}.yml"
 
     def _derive_flow_id(self, name: str, flow_definition: Dict[str, Any]) -> str:
         """Return a flow id for ``name`` that does not collide on disk.
@@ -175,7 +175,7 @@ class FlowRepository:
             List[FlowListItem]: One entry per saved flow, sorted by id.
         """
         items: List[FlowListItem] = []
-        for yaml_path in sorted(self.paths.flows_dir.glob("*.yml")):
+        for yaml_path in sorted(self.paths.workflows_dir.glob("*.yml")):
             flow_id = yaml_path.stem
             try:
                 with yaml_path.open("r", encoding="utf-8") as file_handle:

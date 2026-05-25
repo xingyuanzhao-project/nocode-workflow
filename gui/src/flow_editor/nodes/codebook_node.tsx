@@ -1,5 +1,5 @@
 /**
- * Canvas node for the codebook (taxonomy) resource reference.
+ * Canvas node for the codebook resource reference.
  *
  * In hosted mode the node carries a server-managed codebook id; in
  * local-file mode it carries a project-root-relative POSIX path. The
@@ -16,7 +16,7 @@ import { Position } from "reactflow";
 
 import { NodeCard } from "./node_card";
 
-export interface TaxonomyNodeData {
+export interface CodebookNodeData {
   node_type_id: "codebook";
   label: string;
   category: "resource";
@@ -26,10 +26,10 @@ export interface TaxonomyNodeData {
   codebook_path: string | null;
 }
 
-export function TaxonomyNode({
+export function CodebookNode({
   data,
   selected,
-}: NodeProps<TaxonomyNodeData>): JSX.Element {
+}: NodeProps<CodebookNodeData>): JSX.Element {
   const display_name =
     data.codebook_id || data.codebook_path || "— not selected —";
   return (

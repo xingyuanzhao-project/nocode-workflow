@@ -49,11 +49,13 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       ACADEMIC_PIPELINE_REDIS_URL: redis://redis:6379
-      ACADEMIC_PIPELINE_DATA_DIR: /app/server/data
+      ACADEMIC_PIPELINE_SERVER_ROOT: /app/server
     volumes:
       - ./src:/app/src
       - ./server:/app/server
       - ./config:/app/config:ro
+      - ./workflows:/app/workflows:ro
+      - ./codebooks:/app/codebooks:ro
       - ./data:/app/data:ro
       - ./.env:/app/.env:ro
     restart: unless-stopped
@@ -73,11 +75,13 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       ACADEMIC_PIPELINE_REDIS_URL: redis://redis:6379
-      ACADEMIC_PIPELINE_DATA_DIR: /app/server/data
+      ACADEMIC_PIPELINE_SERVER_ROOT: /app/server
     volumes:
       - ./src:/app/src
       - ./server:/app/server
       - ./config:/app/config:ro
+      - ./workflows:/app/workflows:ro
+      - ./codebooks:/app/codebooks:ro
       - ./data:/app/data:ro
       - ./.env:/app/.env:ro
     restart: unless-stopped

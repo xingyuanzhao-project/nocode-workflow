@@ -27,14 +27,14 @@ def csv_uploader(server_paths, isolated_server_settings) -> CSVUploader:
 
 
 class TestCSVUploaderAccept:
-    def test_stores_file_under_uploads_dir(
+    def test_stores_file_under_data_dir(
         self,
         csv_uploader: CSVUploader,
         tiny_csv_bytes: bytes,
         server_paths,
     ) -> None:
         response = csv_uploader.accept("tiny.csv", tiny_csv_bytes)
-        destination = server_paths.uploads_dir / f"{response.upload_id}.csv"
+        destination = server_paths.data_dir / f"{response.upload_id}.csv"
         assert destination.is_file()
         assert destination.read_bytes() == tiny_csv_bytes
 
@@ -45,7 +45,7 @@ class TestCSVUploaderAccept:
         server_paths,
     ) -> None:
         response = csv_uploader.accept("tiny.csv", tiny_csv_bytes)
-        assert response.stored_path.startswith(server_paths.uploads_dir_relative_posix)
+        assert response.stored_path.startswith(server_paths.data_dir_relative_posix)
         assert "\\" not in response.stored_path
         assert not response.stored_path.startswith("/")
 

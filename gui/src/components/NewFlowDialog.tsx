@@ -11,7 +11,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
-import { getFlowTemplate, listFlowTemplates } from "@/api/templates";
+import { getWorkflow, listWorkflows } from "@/api/workflows";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -40,8 +40,8 @@ export function NewFlowDialog({
 }: NewFlowDialogProps): JSX.Element {
   const navigate = useNavigate();
   const templates_query = useQuery({
-    queryKey: ["flow-templates"],
-    queryFn: listFlowTemplates,
+    queryKey: ["flow-workflows"],
+    queryFn: listWorkflows,
     staleTime: 5 * 60_000,
   });
   const [selected_template_id, set_selected_template_id] = useState<string>(
@@ -71,7 +71,7 @@ export function NewFlowDialog({
         });
         reset_settings();
       } else {
-        const template = await getFlowTemplate(selected_template_id);
+        const template = await getWorkflow(selected_template_id);
         const deserialised = deserialize_flow_document(template.flow);
         set_graph(deserialised.nodes, deserialised.edges);
         set_metadata({

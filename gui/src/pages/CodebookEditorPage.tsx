@@ -1,16 +1,16 @@
 /**
- * Taxonomy editor page.
+ * Codebook editor page.
  *
- * Loads one taxonomy by id, renders its labels via
+ * Loads one codebook by id, renders its labels via
  * :class:`LabelEditor`, and persists changes back to the backend
- * through :func:`updateTaxonomy`.
+ * through :func:`updateCodebook`.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 
-import { getTaxonomy, updateTaxonomy } from "@/api/taxonomies";
+import { getCodebook, updateCodebook } from "@/api/codebooks";
 import { Button } from "@/components/ui/button";
 import {
   LabelEditor,
@@ -19,38 +19,38 @@ import {
   type LabelEntry,
 } from "@/components/LabelEditor";
 
-export default function TaxonomyEditorPage(): JSX.Element {
-  const { taxonomy_id } = useParams<{ taxonomy_id: string }>();
+export default function CodebookEditorPage(): JSX.Element {
+  const { codebook_id } = useParams<{ codebook_id: string }>();
   const import_input_ref = useRef<HTMLInputElement | null>(null);
 
-  const [taxonomy_name, set_taxonomy_name] = useState("");
+  const [codebook_name, set_codebook_name] = useState("");
   const [label_entries, set_label_entries] = useState<LabelEntry[]>([]);
   const [is_dirty, set_is_dirty] = useState(false);
   const [editor_error, set_editor_error] = useState<string | null>(null);
 
   const load_query = useQuery({
-    queryKey: ["taxonomy", taxonomy_id],
-    queryFn: () => getTaxonomy(taxonomy_id as string),
-    enabled: Boolean(taxonomy_id),
+    queryKey: ["codebook", codebook_id],
+    queryFn: () => getCodebook(codebook_id as string),
+    enabled: Boolean(codebook_id),
   });
 
   useEffect(() => {
     if (!load_query.data) {
       return;
     }
-    set_taxonomy_name(load_query.data.name);
-    set_label_entries(labelEntriesFromJson(load_query.data.taxonomy));
+    set_codebook_name(load_query.data.name);
+    set_label_entries(labelEntriesFromJson(load_query.data.codebook));
     set_is_dirty(false);
   }, [load_query.data]);
 
   const save_mutation = useMutation({
     mutationFn: () => {
-      if (!taxonomy_id) {
-        throw new Error("Cannot save: taxonomy id missing from URL");
+      if (!codebook_id) {
+        throw new Error("Cannot save: codebook id missing from URL");
       }
-      return updateTaxonomy(
-        taxonomy_id,
-        taxonomy_name,
+      return updateCodebook(
+        codebook_id,
+        codebook_name,
         labelEntriesToJson(label_entries),
       );
     },
@@ -96,7 +96,7 @@ export default function TaxonomyEditorPage(): JSX.Element {
     const object_url = URL.createObjectURL(blob);
     const anchor_element = document.createElement("a");
     anchor_element.href = object_url;
-    anchor_element.download = `${taxonomy_name || "taxonomy"}.json`;
+    anchor_element.download = `${codebook_name || "codebook"}.json`;
     anchor_element.click();
     URL.revokeObjectURL(object_url);
   };
@@ -107,9 +107,9 @@ export default function TaxonomyEditorPage(): JSX.Element {
         <input
           className="rounded-md border bg-background px-2 py-1 text-sm font-medium min-w-[20rem]"
           placeholder="Unnamed Codebook"
-          value={taxonomy_name}
+          value={codebook_name}
           onChange={(event) => {
-            set_taxonomy_name(event.target.value);
+            set_codebook_name(event.target.value);
             set_is_dirty(true);
           }}
         />
@@ -161,7 +161,7 @@ export default function TaxonomyEditorPage(): JSX.Element {
           <div className="text-sm text-muted-foreground">Loading...</div>
         ) : load_query.isError ? (
           <div className="text-sm text-destructive">
-            Could not load taxonomy: {String(load_query.error)}
+            Could not load codebook: {String(load_query.error)}
           </div>
         ) : (
           <LabelEditor

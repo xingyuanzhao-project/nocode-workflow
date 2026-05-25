@@ -68,9 +68,9 @@ class ServerSettings(BaseSettings):
     """Process-wide configuration for the web and worker processes.
 
     Attributes:
-        data_dir (Path): Base directory holding flow YAMLs, taxonomy
-            JSONs, uploaded CSVs, and per-run artefact directories.
-            Defaults to ``<project_root>/server/data``.
+        server_root (Path): Base directory for runtime subdirectories
+            ``workflows/``, ``codebooks/``, ``data/``, and ``runs/``.
+            Defaults to ``<project_root>/server``.
         cors_origins (List[str]): Origins allowed by
             :class:`fastapi.middleware.cors.CORSMiddleware`.
         redis_url (str): Base Redis URL without a database suffix. For
@@ -113,7 +113,7 @@ class ServerSettings(BaseSettings):
         extra="ignore",
     )
 
-    data_dir: Path = Field(default=_PROJECT_ROOT / "server" / "data")
+    server_root: Path = Field(default=_PROJECT_ROOT / "server")
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     redis_url: str = "redis://localhost:6379"

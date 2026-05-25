@@ -1,0 +1,4 @@
+# Preset source directories — available locally but excluded from
+# the production Docker image so they never seed on the webapp.
+workflows/
+codebooks/

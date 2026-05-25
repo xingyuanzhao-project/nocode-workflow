@@ -1,19 +1,19 @@
-"""Top-level on-disk layout under :attr:`ServerSettings.data_dir`.
+"""Top-level on-disk layout for server runtime directories.
 
 Centralises the directory hierarchy used by every service so nothing
-else has to know ``flows/`` lives next to ``taxonomies/`` lives next to
-``uploads/`` lives next to ``runs/``. Swapping the root directory is a
-one-setting change.
+else has to know ``server/workflows/`` lives next to
+``server/codebooks/`` lives next to ``server/data/`` lives next to
+``server/runs/``. Swapping the root directory is a one-setting change.
 
 Contents and relationships
 --------------------------
 
-- :class:`ServerPaths` — frozen dataclass holding the four top-level
-  directories plus the parent ``data_dir``. Created once per process via
+- :class:`ServerPaths` — frozen dataclass holding the runtime
+  directories. Created once per process via
   :meth:`ServerPaths.from_settings`, which also calls ``mkdir`` so every
   directory exists before the first service reads or writes. The class
   additionally exposes project-root-relative POSIX string forms of the
-  directories (``uploads_dir_relative_posix`` etc.), used when a path
+  directories (``data_dir_relative_posix`` etc.), used when a path
   must appear in a flow YAML or response DTO that crosses process and
   OS boundaries (for example Windows host to Linux worker container).
 
@@ -21,12 +21,12 @@ How the rest of the system uses this module
 -------------------------------------------
 
 - :mod:`server.services.flow_repository` reads
-  :attr:`ServerPaths.flows_dir`.
+  :attr:`ServerPaths.workflows_dir`.
 - :mod:`server.services.taxonomy_repository` reads
-  :attr:`ServerPaths.taxonomies_dir`.
+  :attr:`ServerPaths.codebooks_dir`.
 - :mod:`server.services.csv_uploader` reads
-  :attr:`ServerPaths.uploads_dir` for the absolute write target and
-  :attr:`ServerPaths.uploads_dir_relative_posix` for the
+  :attr:`ServerPaths.data_dir` for the absolute write target and
+  :attr:`ServerPaths.data_dir_relative_posix` for the
   ``stored_path`` it returns to clients.
 - :mod:`server.services.run_dispatcher`,
   :mod:`server.services.run_registry`, and
@@ -37,9 +37,7 @@ How the rest of the system uses this module
 Invariants enforced by this module
 ----------------------------------
 
-- The four directories are always children of
-  :attr:`ServerPaths.data_dir`.
-- :attr:`ServerPaths.data_dir` must lie inside the project root
+- All directories must lie inside the project root
   (``<project_root>/...``). The relative-POSIX helpers are computed
   from that invariant; :meth:`ServerPaths.from_settings` raises
   :class:`ValueError` if it is violated.
@@ -85,7 +83,7 @@ def _project_root_relative_posix(target: Path) -> str:
     except ValueError as exc:
         raise ValueError(
             f"{target} is not inside project root {_PROJECT_ROOT}; "
-            "set ACADEMIC_PIPELINE_DATA_DIR to a path under the project root so "
+            "set ACADEMIC_PIPELINE_SERVER_ROOT to a path under the project root so "
             "host (Windows) and worker (container Linux) resolve the same "
             "relative paths in flow YAMLs."
         ) from exc
@@ -96,34 +94,31 @@ class ServerPaths:
     """Top-level on-disk directory layout for the server package.
 
     Attributes:
-        data_dir (Path): Parent directory holding every subfolder below.
-        flows_dir (Path): ``<data_dir>/flows``; saved flow YAMLs.
-        taxonomies_dir (Path): ``<data_dir>/taxonomies``; saved taxonomy
-            JSONs.
-        uploads_dir (Path): ``<data_dir>/uploads``; user-uploaded CSVs.
-        runs_dir (Path): ``<data_dir>/runs``; per-run artefact
+        workflows_dir (Path): ``<server_root>/workflows``; saved flow
+            YAMLs (user-created and seeded).
+        codebooks_dir (Path): ``<server_root>/codebooks``; saved
+            codebook JSONs.
+        data_dir (Path): ``<server_root>/data``; user-uploaded CSVs.
+        runs_dir (Path): ``<server_root>/runs``; per-run artefact
             directories, each keyed by ``run_id``.
         data_dir_relative_posix (str): ``data_dir`` expressed relative
             to the project root with forward slashes (for example
             ``server/data``). Used anywhere a path must travel between
             the web process and the worker as a string (flow YAMLs,
             upload response DTOs).
-        uploads_dir_relative_posix (str): ``uploads_dir`` in the same
+        runs_dir_relative_posix (str): ``runs_dir`` in the same
             project-root-relative POSIX form.
-        runs_dir_relative_posix (str): ``runs_dir`` in the same form.
 
     Methods:
         from_settings: Construct a :class:`ServerPaths` from a
             :class:`ServerSettings` and ensure every directory exists.
     """
 
+    workflows_dir: Path
+    codebooks_dir: Path
     data_dir: Path
-    flows_dir: Path
-    taxonomies_dir: Path
-    uploads_dir: Path
     runs_dir: Path
     data_dir_relative_posix: str
-    uploads_dir_relative_posix: str
     runs_dir_relative_posix: str
 
     @classmethod
@@ -132,32 +127,31 @@ class ServerPaths:
 
         Args:
             settings (ServerSettings): The process settings; only
-                :attr:`ServerSettings.data_dir` is read.
+                :attr:`ServerSettings.server_root` is read.
 
         Returns:
-            ServerPaths: A frozen dataclass whose five directories all
+            ServerPaths: A frozen dataclass whose directories all
             exist on disk and whose relative-POSIX fields are computed
             against the project root.
 
         Raises:
-            ValueError: If ``settings.data_dir`` resolves outside the
+            ValueError: If a directory resolves outside the
                 project root. See :func:`_project_root_relative_posix`.
         """
-        data_dir = Path(settings.data_dir).resolve()
-        flows_dir = data_dir / "flows"
-        taxonomies_dir = data_dir / "taxonomies"
-        uploads_dir = data_dir / "uploads"
-        runs_dir = data_dir / "runs"
-        for directory in (data_dir, flows_dir, taxonomies_dir, uploads_dir, runs_dir):
+        server_root = Path(settings.server_root).resolve()
+        workflows_dir = server_root / "workflows"
+        codebooks_dir = server_root / "codebooks"
+        data_dir = server_root / "data"
+        runs_dir = server_root / "runs"
+        for directory in (workflows_dir, codebooks_dir, data_dir, runs_dir):
             directory.mkdir(parents=True, exist_ok=True)
         data_dir_relative_posix = _project_root_relative_posix(data_dir)
+        runs_dir_relative_posix = _project_root_relative_posix(runs_dir)
         return cls(
+            workflows_dir=workflows_dir,
+            codebooks_dir=codebooks_dir,
             data_dir=data_dir,
-            flows_dir=flows_dir,
-            taxonomies_dir=taxonomies_dir,
-            uploads_dir=uploads_dir,
             runs_dir=runs_dir,
             data_dir_relative_posix=data_dir_relative_posix,
-            uploads_dir_relative_posix=f"{data_dir_relative_posix}/uploads",
-            runs_dir_relative_posix=f"{data_dir_relative_posix}/runs",
+            runs_dir_relative_posix=runs_dir_relative_posix,
         )

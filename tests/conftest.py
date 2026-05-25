@@ -87,7 +87,7 @@ def isolated_data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
         Path: Absolute path of the fresh data directory.
     """
     suffix = tmp_path_factory.mktemp("pytest_data").name
-    data_dir = _PROJECT_ROOT / "server" / "data" / f"test_{suffix}"
+    data_dir = _PROJECT_ROOT / "server" / f"test_{suffix}"
     data_dir.mkdir(parents=True, exist_ok=True)
     yield data_dir
     _remove_tree(data_dir)
@@ -139,7 +139,7 @@ def isolated_server_settings(
     """
     from server.settings import ServerSettings, get_settings
 
-    monkeypatch.setenv("ACADEMIC_PIPELINE_DATA_DIR", str(isolated_data_dir))
+    monkeypatch.setenv("ACADEMIC_PIPELINE_SERVER_ROOT", str(isolated_data_dir))
     # Keep the real Redis URL out of tests so nothing accidentally
     # connects to a production instance via get_settings().
     monkeypatch.setenv("ACADEMIC_PIPELINE_REDIS_URL", "redis://fakeredis.invalid:6379")
