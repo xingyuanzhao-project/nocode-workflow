@@ -25,5 +25,9 @@ processing.log
 # Run artefacts — kept out of git to prevent repo bloat (80+ dirs, large files)
 server/runs/
 
+# Astro build output
+docs/node_modules/
+docs/dist/
+
 # Large data files (over GitHub 100 MB limit)
 data/ncsl_bills.jsonl

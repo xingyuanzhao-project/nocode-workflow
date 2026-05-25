@@ -1,0 +1,35 @@
+:root {
+  --sl-color-accent-low: #e8edf3;
+  --sl-color-accent: #2c4f7c;
+  --sl-color-accent-high: #c4d5ea;
+  --sl-color-white: #1a1a2e;
+  --sl-color-gray-1: #3d3d56;
+  --sl-color-gray-2: #5a5a73;
+  --sl-color-gray-3: #8888a0;
+  --sl-color-gray-4: #b0b0c0;
+  --sl-color-gray-5: #d4d4e0;
+  --sl-color-gray-6: #ececf2;
+  --sl-color-black: #fafafe;
+  --sl-font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  --sl-text-body: var(--sl-font-system);
+  --sl-text-h: var(--sl-font-system);
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #1a2744;
+  --sl-color-accent: #6b9bd2;
+  --sl-color-accent-high: #2c4f7c;
+  --sl-color-white: #f0f0f8;
+  --sl-color-gray-1: #d4d4e0;
+  --sl-color-gray-2: #b0b0c0;
+  --sl-color-gray-3: #8888a0;
+  --sl-color-gray-4: #5a5a73;
+  --sl-color-gray-5: #3d3d56;
+  --sl-color-gray-6: #24243a;
+  --sl-color-black: #16162a;
+}
+
+html {
+  font-size: 16px;
+}
