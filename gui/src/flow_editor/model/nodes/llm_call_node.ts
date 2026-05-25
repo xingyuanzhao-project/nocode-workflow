@@ -36,7 +36,6 @@ export class LLMCallNode extends BaseNode {
   resource_id: string = "default";
   provider: ProviderName = "openrouter";
   model: string = "";
-  api_base: string | null = "https://openrouter.ai/api/v1";
   api_key_env: string | null = "OPENROUTER_API_KEY";
   api_key: string | null = null;
   temperature: number = 0;
@@ -65,11 +64,6 @@ export class LLMCallNode extends BaseNode {
         : "openrouter";
 
     this.model = typeof config.model === "string" ? config.model : "";
-
-    this.api_base =
-      typeof config.api_base === "string" && config.api_base.length > 0
-        ? config.api_base
-        : null;
 
     this.api_key_env =
       typeof config.api_key_env === "string" && config.api_key_env.length > 0
@@ -115,9 +109,6 @@ export class LLMCallNode extends BaseNode {
       temperature: this.temperature,
       max_tokens: this.max_tokens,
     };
-    if (this.api_base !== null) {
-      out.api_base = this.api_base;
-    }
     const effective_api_key_env = this.api_key_env
       ?? LLMCallNode.PROVIDER_DEFAULT_ENV_VAR[this.provider]
       ?? null;
@@ -148,7 +139,6 @@ export class LLMCallNode extends BaseNode {
       resource_id: this.resource_id,
       provider: this.provider,
       model: this.model,
-      api_base: this.api_base,
       api_key_env: this.api_key_env,
       api_key: this.api_key,
       temperature: this.temperature,

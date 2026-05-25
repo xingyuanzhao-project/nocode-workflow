@@ -30,11 +30,14 @@ from openai import AsyncOpenAI
 from tqdm.asyncio import tqdm as tqdm_async
 
 from src.flow_loader import (
+    ExecutionPlan,
     FlowSchema,
     LLMResource,
     LOCAL_PROVIDERS,
     LoggingConfig,
     ProcessorConfig,
+    ScheduledNode,
+    ScheduledOutput,
 )
 
 PROVIDER_DEFAULT_ENV_VAR: Dict[str, str] = {
@@ -48,6 +51,13 @@ LOCAL_ENDPOINT_ENV_VAR: Dict[str, str] = {
     "ollama": "OLLAMA_API_BASE",
     "vllm": "VLLM_API_BASE",
     "llama_cpp": "LLAMA_CPP_API_BASE",
+}
+
+CLOUD_PROVIDER_API_BASE: Dict[str, str] = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "openai": "https://api.openai.com/v1",
+    "claude": "https://api.anthropic.com/v1",
+    "google": "https://generativelanguage.googleapis.com/v1beta/openai/",
 }
 """Default environment variable name per hosted provider.
 
@@ -114,9 +124,8 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
     For local providers (``ollama``, ``vllm``, ``llama_cpp``), the
     endpoint is resolved from the environment variable set by the
     API Keys page (e.g. ``VLLM_API_BASE``).  For cloud providers the
-    endpoint comes from ``resource.api_base`` (set in the flow/node
-    config).  No hardcoded fallback exists for either — if the value
-    is absent the call fails with a clear configuration error.
+    endpoint is derived from :data:`CLOUD_PROVIDER_API_BASE` using the
+    provider name — the node never carries its own ``api_base``.
 
     ``api_key`` is resolved from :attr:`LLMResource.api_key_env` against
     :data:`os.environ`. For local providers the convention is to pass
@@ -131,8 +140,7 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
         ``api_key`` populated and ``api_key_env`` cleared.
 
     Raises:
-        ValueError: If ``api_base`` is missing for a cloud provider,
-            if a local provider has no endpoint URL configured,
+        ValueError: If a local provider has no endpoint URL configured,
             if ``api_key_env`` is declared but the named environment
             variable is missing, or if a hosted provider ends up with
             no usable API key.
@@ -146,14 +154,11 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
                 f"no endpoint URL configured. Set it in the API Keys page "
                 f"or add {env_var_name!r} to the project-root .env file."
             )
-        resolved_api_base = env_base
+        from src.localhost_resolver import resolve_localhost_url
+
+        resolved_api_base = resolve_localhost_url(env_base)
     else:
-        if not resource.api_base:
-            raise ValueError(
-                f"Resource {resource.id!r} (provider={resource.provider!r}): "
-                f"no api_base configured. Set it in the LLM node config."
-            )
-        resolved_api_base = resource.api_base
+        resolved_api_base = CLOUD_PROVIDER_API_BASE[resource.provider]
 
     if resource.api_key is not None:
         resolved_api_key: str = resource.api_key
@@ -297,8 +302,6 @@ def _build_processor_runtime_config(
         "model": {"name": resource.model},
         "processing": {
             "temperature": resource.temperature,
-            "max_tokens_summary": resource.max_tokens_summary,
-            "max_tokens_classification": resource.max_tokens_classification,
         },
         "prompts": prompts_payload,
         "logging": logging_config.model_dump(),
@@ -499,12 +502,19 @@ class FlowRunner:
         self.logger = logger
         self.resume = resume
 
+        if schema.execution_plan is None:
+            raise ValueError(
+                "FlowSchema has no execution_plan. "
+                "Use FlowSchema.load_from_path to build one."
+            )
+        self._execution_plan: ExecutionPlan = schema.execution_plan
+
         self._flow_prompts_path: str = schema.flow.prompts
         self._input_columns = self._read_input_columns()
-        self._output_fields = self._resolve_output_fields()
-        self._output_col = self._output_fields[0]
 
-        output_dir = Path(schema.flow.output.summary_csv).parent
+        output_dir = Path(
+            self._execution_plan.outputs[0].config.summary_csv,
+        ).parent
         self._checkpoint = _Checkpoint(output_dir, schema.flow.name)
 
     def _read_input_columns(self) -> List[str]:
@@ -535,24 +545,6 @@ class FlowRunner:
                         return result
         return []
 
-    def _resolve_output_fields(self) -> List[str]:
-        """Read ``output_fields`` from the first output node's config.
-
-        Raises ValueError if no output node declares output fields,
-        since without them the LLM call has no defined output schema.
-        """
-        for node in self.schema.document.nodes:
-            if node.type in {"csv_output", "json_output"}:
-                raw = node.config.get("output_fields")
-                if isinstance(raw, list) and raw:
-                    fields = [str(f) for f in raw if f]
-                    if fields:
-                        return fields
-        raise ValueError(
-            "No output node declares 'output_fields'. "
-            "Configure at least one output field in the output node."
-        )
-
     def run(self) -> None:
         """Execute the flow synchronously.
 
@@ -567,14 +559,13 @@ class FlowRunner:
     async def run_async(self) -> None:
         """Execute every step of the flow on the current event loop.
 
-        Returns:
-            None.
-
-        Raises:
-            FileNotFoundError: If the input CSV does not exist.
-            NotImplementedError: If the flow declares an unimplemented step.
+        Dispatches processor nodes in readiness order derived from the
+        :class:`ExecutionPlan`. A node is ready when all of its
+        ``input_from`` sources have completed. Ready siblings run
+        concurrently. Each output node writes independently.
         """
         flow = self.schema.flow
+        plan = self._execution_plan
         input_df = self._load_input_data()
 
         if flow.processing_limit is not None:
@@ -583,26 +574,55 @@ class FlowRunner:
                 "Processing limit applied: %d rows", len(input_df),
             )
 
-        processor_results: List[ProcessorResult] = []
-        current_source: Union[pd.DataFrame, ProcessorResult] = input_df
-        for proc_index, step in enumerate(flow.processors):
+        for warning in plan.warnings:
+            self.logger.warning("Execution plan: %s", warning)
+
+        results: Dict[str, Union[pd.DataFrame, ProcessorResult]] = {
+            plan.data_input_node_id: input_df,
+        }
+        pending = list(plan.processors)
+
+        while pending:
+            ready = [
+                sn for sn in pending
+                if all(src_id in results for src_id in sn.input_from)
+            ]
+            if not ready:
+                unreachable = [sn.node_id for sn in pending]
+                raise RuntimeError(
+                    f"Deadlock: {len(pending)} processor(s) remain but "
+                    f"none are ready: {unreachable}. This indicates a "
+                    "cycle or disconnected subgraph not caught at "
+                    "compile time."
+                )
+
             self.logger.info(
-                "Dispatching processor %d/%d: type=%s",
-                proc_index + 1, len(flow.processors), step.type,
+                "Dispatching %d processor(s) concurrently: %s",
+                len(ready),
+                [sn.node_id for sn in ready],
             )
+            completed = await asyncio.gather(*[
+                self._run_scheduled_node(sn, results)
+                for sn in ready
+            ])
+            for node_id, result in completed:
+                results[node_id] = result
 
-            if step.type == "processor":
-                result = await self._run_generic(
-                    source=current_source, step=step,
-                )
-                processor_results.append(result)
-                current_source = result
-            else:
-                raise NotImplementedError(
-                    f"Step type {step.type!r} is not recognised by the runner."
-                )
+            for sn in ready:
+                pending.remove(sn)
 
-        self._write_outputs(input_df=input_df, results=processor_results)
+        for scheduled_output in plan.outputs:
+            self._write_single_output(scheduled_output, results, input_df)
+
+    async def _run_scheduled_node(
+        self,
+        sn: ScheduledNode,
+        results: Dict[str, Union[pd.DataFrame, ProcessorResult]],
+    ) -> Tuple[str, ProcessorResult]:
+        """Execute one scheduled processor node and return its result."""
+        sources = [results[src_id] for src_id in sn.input_from]
+        result = await self._run_generic(sources=sources, step=sn.config)
+        return sn.node_id, result
 
     def _load_input_data(self) -> pd.DataFrame:
         """Load the input data file.
@@ -728,16 +748,12 @@ class FlowRunner:
 
         return json.dumps(entries, indent=2, ensure_ascii=False)
 
-    def _normalize_input(
+    def _source_to_rows(
         self,
         source: Union[pd.DataFrame, ProcessorResult],
         output_keys: List[str],
     ) -> Dict[int, Dict[str, str]]:
-        """Normalize any input source to {row_index: {field: str_value}}.
-
-        Accepts a DataFrame (from data input node) or a ProcessorResult
-        (from a previous processor). Same interface either way.
-        """
+        """Convert one source (DataFrame or ProcessorResult) to rows."""
         if isinstance(source, ProcessorResult):
             return source.to_input_rows()
 
@@ -753,17 +769,37 @@ class FlowRunner:
             }
         return input_rows
 
+    def _normalize_input(
+        self,
+        sources: List[Union[pd.DataFrame, ProcessorResult]],
+        output_keys: List[str],
+    ) -> Dict[int, Dict[str, str]]:
+        """Normalize one or more input sources into a merged row dict.
+
+        For a single source this is a straightforward conversion.
+        For fan-in (multiple sources), rows are merged by index —
+        each source contributes its fields to the same row.
+        """
+        merged: Dict[int, Dict[str, str]] = {}
+        for source in sources:
+            rows = self._source_to_rows(source, output_keys)
+            for row_idx, fields in rows.items():
+                if row_idx not in merged:
+                    merged[row_idx] = {}
+                merged[row_idx].update(fields)
+        return merged
+
     async def _run_generic(
         self,
-        source: Union[pd.DataFrame, ProcessorResult],
+        sources: List[Union[pd.DataFrame, ProcessorResult]],
         step: ProcessorConfig,
     ) -> ProcessorResult:
         """Run the generic processor on every row concurrently.
 
-        *source* can be a DataFrame (from data input node) or a
-        ProcessorResult (from a previous processor). The processor
-        detects and normalizes the input automatically. Returns a
-        :class:`ProcessorResult`. Does NOT modify the source.
+        ``sources`` contains one or more inputs — a DataFrame (from the
+        data input node) and/or ProcessorResults (from upstream
+        processors). For fan-in, multiple sources are merged by row
+        index. Returns a :class:`ProcessorResult`.
         """
         flow = self.schema.flow
         async_config = flow.async_config
@@ -792,7 +828,6 @@ class FlowRunner:
 
         model_name = processor_config["model"]["name"]
         temperature = processor_config["processing"]["temperature"]
-        max_tokens = processor_config["processing"]["max_tokens_summary"]
 
         constructor = PromptConstructor(
             base_instructions=list(prompt_resolved.instructions),
@@ -825,14 +860,13 @@ class FlowRunner:
             provider=resource.provider,
             logger=self.logger,
             temperature=temperature,
-            max_tokens=max_tokens,
             llm_semaphore=llm_semaphore,
         )
 
         row_semaphore = asyncio.Semaphore(async_config.max_concurrent_rows)
         output_keys = list(io_schema.output.keys())
 
-        input_rows = self._normalize_input(source, output_keys)
+        input_rows = self._normalize_input(sources, output_keys)
 
         async def _process_row(
             row_index: int, input_fields: Dict[str, str],
@@ -884,18 +918,40 @@ class FlowRunner:
 
         return result
 
-    def _write_outputs(
+    def _write_single_output(
         self,
+        scheduled_output: ScheduledOutput,
+        results: Dict[str, Union[pd.DataFrame, ProcessorResult]],
         input_df: pd.DataFrame,
-        results: List[ProcessorResult],
     ) -> None:
-        """Assemble output rows from input data + processor results and write CSV.
+        """Write one output node's file from its source processor results.
 
-        This is the output node — it is solely responsible for building
-        and saving the final file. Processors have nothing to do with it.
+        Each output node is solely responsible for building and saving
+        its own file. It reads only from the processors that feed it
+        (as declared by its ``input_from`` edges).
         """
-        output_config = self.schema.flow.output
-        output_fields = self._output_fields
+        output_config = scheduled_output.config
+        output_fields = scheduled_output.output_fields
+
+        source_results: List[ProcessorResult] = [
+            results[src_id]
+            for src_id in scheduled_output.input_from
+            if isinstance(results.get(src_id), ProcessorResult)
+        ]
+
+        available_keys: set[str] = set()
+        for pr in source_results:
+            available_keys.update(pr.output_fields)
+
+        missing = [f for f in output_fields if f not in available_keys]
+        if missing:
+            raise ValueError(
+                f"Output node {scheduled_output.node_id!r}: output_fields "
+                f"{missing} do not match any processor output key. "
+                f"Processor(s) produce: {sorted(available_keys)}. "
+                f"Fix the output node's Output Fields to use the exact "
+                f"field names defined in the processor's Output Schema."
+            )
 
         rows: List[Dict[str, Any]] = []
         for row_idx in range(len(input_df)):
@@ -904,13 +960,11 @@ class FlowRunner:
             for col in input_df.columns:
                 row_data[col] = input_row[col]
 
-            for proc_result in results:
+            for proc_result in source_results:
                 result_dict = proc_result.rows.get(row_idx)
                 if result_dict is not None:
                     for field_name in output_fields:
-                        if field_name in result_dict:
-                            row_data[field_name] = result_dict[field_name]
-
+                        row_data[field_name] = result_dict[field_name]
                 row_data["model"] = proc_result.model_name
 
             rows.append(row_data)
@@ -922,19 +976,21 @@ class FlowRunner:
 
         if output_config.extend and summary_path.exists():
             existing_df = pd.read_csv(summary_path, encoding="utf-8")
-            model_name = results[0].model_name if results else ""
+            model_name = source_results[0].model_name if source_results else ""
             if "model" in existing_df.columns:
                 existing_df = existing_df[existing_df["model"] != model_name]
             combined_df = pd.concat([existing_df, output_df], ignore_index=True)
             combined_df.to_csv(summary_path, index=False, encoding="utf-8")
             self.logger.info(
-                "Output extended: %d existing + %d new = %d total rows",
+                "Output %r extended: %d existing + %d new = %d total rows",
+                scheduled_output.node_id,
                 len(existing_df), len(output_df), len(combined_df),
             )
         else:
             output_df.to_csv(summary_path, index=False, encoding="utf-8")
             self.logger.info(
-                "Output saved to %s (%d rows)", summary_path, len(output_df),
+                "Output %r saved to %s (%d rows)",
+                scheduled_output.node_id, summary_path, len(output_df),
             )
 
 

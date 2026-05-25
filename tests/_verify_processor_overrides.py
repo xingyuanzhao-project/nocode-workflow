@@ -44,8 +44,6 @@ def _base_config_with_prompts() -> Dict[str, Any]:
         "model": {"name": "test-model"},
         "processing": {
             "temperature": 0.0,
-            "max_tokens_summary": 100,
-            "max_tokens_classification": 50,
         },
         "prompts": prompts,
     }

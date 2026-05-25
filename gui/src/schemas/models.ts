@@ -20,6 +20,7 @@ export const providerModelSchema = z.object({
   label: z.string(),
   description: z.string().nullable().optional(),
   context_length: z.number().int().nullable().optional(),
+  max_output_tokens: z.number().int().nullable().optional(),
 });
 export type ProviderModel = z.infer<typeof providerModelSchema>;
 

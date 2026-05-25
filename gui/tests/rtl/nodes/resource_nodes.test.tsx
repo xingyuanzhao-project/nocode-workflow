@@ -38,8 +38,6 @@ describe("LLMProviderNode", () => {
       provider: "openrouter",
       model: "meta-llama/llama-3.1-70b-instruct",
       temperature: 0.25,
-      max_tokens_summary: 1024,
-      max_tokens_classification: 256,
     });
     const body = container.textContent ?? "";
     expect(body).toContain("default");
@@ -57,8 +55,6 @@ describe("LLMProviderNode", () => {
       provider: "openrouter",
       model: "",
       temperature: 0,
-      max_tokens_summary: 1024,
-      max_tokens_classification: 256,
     });
     expect(getByText(/no model/i)).toBeInTheDocument();
   });

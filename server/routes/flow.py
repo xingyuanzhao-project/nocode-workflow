@@ -42,6 +42,7 @@ from fastapi import APIRouter, Depends, status
 
 from server.dependencies import (
     get_flow_repository,
+    get_model_list_proxy,
     get_run_dispatcher,
     get_run_registry,
 )
@@ -55,8 +56,10 @@ from server.schemas.flow import (
     FlowSaveRequest,
     FlowSaveResponse,
 )
+from server.schemas.models import ProviderModelsResponse
 from server.schemas.run import RunListItem, RunStartResponse, RunStatusDTO
 from server.services.flow_repository import FlowRepository
+from server.services.model_list_proxy import ModelListProxy
 from server.services.run_dispatcher import RunDispatcher
 from server.services.run_registry import RunRegistry
 
@@ -197,82 +200,196 @@ def duplicate_flow(
     return repository.duplicate(flow_id, request.new_name)
 
 
-MODEL_COST_PER_MILLION_TOKENS: dict[str, float] = {
+LOCAL_PROVIDERS: frozenset[str] = frozenset({"ollama", "vllm", "llama_cpp"})
+
+# Output-token price per 1 M tokens (USD).  Sourced from official
+# pricing pages as of May 2026.  The estimate endpoint prefers the
+# live pricing cached from the OpenRouter catalogue; this table is
+# the fallback when the cache has no entry for the model.
+#
+# Sources:
+#   Google  – https://ai.google.dev/gemini-api/docs/pricing
+#   OpenAI  – https://platform.openai.com/docs/pricing
+#   Anthropic – https://docs.anthropic.com/en/docs/about-claude/pricing
+#   OpenRouter – https://openrouter.ai/models (pass-through pricing)
+MODEL_OUTPUT_PRICE_PER_MILLION: dict[str, float] = {
+    # Google (via OpenRouter)
+    "google/gemini-2.5-flash": 2.50,
+    "google/gemini-2.5-pro": 10.00,
+    "google/gemini-2.0-flash-001": 0.40,
+    "google/gemini-2.0-flash": 0.40,
+    # Google (direct)
+    "gemini-2.5-flash": 2.50,
+    "gemini-2.5-pro": 10.00,
+    "gemini-2.0-flash-001": 0.40,
+    # OpenAI (direct and via OpenRouter)
+    "gpt-4.1": 8.00,
+    "gpt-4.1-mini": 1.60,
+    "gpt-4.1-nano": 0.40,
+    "gpt-4o": 10.00,
+    "gpt-4o-mini": 0.60,
+    "openai/gpt-4o": 10.00,
+    "openai/gpt-4o-mini": 0.60,
+    "openai/gpt-4.1": 8.00,
+    "openai/gpt-4.1-mini": 1.60,
+    "openai/gpt-4.1-nano": 0.40,
+    # Anthropic
+    "claude-3.5-haiku": 4.00,
+    "claude-sonnet-4": 15.00,
+    "claude-opus-4": 75.00,
+    "anthropic/claude-3.5-haiku": 4.00,
+    "anthropic/claude-sonnet-4": 15.00,
+    "anthropic/claude-opus-4": 75.00,
+    # Meta Llama (OpenRouter)
+    "meta-llama/llama-3.3-70b-instruct": 0.30,
     "meta-llama/llama-3.1-70b-instruct": 0.40,
     "meta-llama/llama-3.1-8b-instruct": 0.06,
-    "meta-llama/llama-3.3-70b-instruct": 0.30,
-    "qwen/qwen-2.5-72b-instruct": 0.36,
-    "mistralai/mistral-large-latest": 2.00,
-    "google/gemini-2.0-flash-001": 0.10,
-    "gpt-4o": 2.50,
-    "gpt-4o-mini": 0.15,
-    "gpt-4-turbo": 10.00,
-    "gpt-3.5-turbo": 0.50,
+    # Mistral
+    "mistralai/mistral-large-latest": 6.00,
+    "mistralai/mistral-small": 0.30,
 }
-"""Per-million-token costs for common models. Used by the cost estimator
-as a lookup table. Models not in this table fall back to a conservative
-default of $1.00 / 1M tokens."""
 
-DEFAULT_COST_PER_MILLION_TOKENS: float = 1.00
-"""Fallback rate when the model is not in :data:`MODEL_COST_PER_MILLION_TOKENS`."""
+DEFAULT_OUTPUT_PRICE_PER_MILLION: float = 1.00
+"""Fallback output-token rate when neither the cache nor the static
+table contains a match."""
 
-CHARS_PER_TOKEN: int = 4
-"""Rough heuristic: 1 token ~ 4 characters of English text."""
+
+def _lookup_cached_pricing(
+    model_proxy: ModelListProxy,
+    provider: str,
+    model_name: str,
+) -> float | None:
+    """Try to read the output-token price from the Redis model cache.
+
+    Returns the completion price per 1 M tokens, or ``None`` on miss.
+    """
+    cache_key = f"{model_proxy.key_prefix}:models:{provider}"
+    try:
+        raw = model_proxy.redis_client.get(cache_key)
+    except Exception:
+        return None
+    if raw is None:
+        return None
+    try:
+        cached = ProviderModelsResponse.model_validate_json(raw)
+    except Exception:
+        return None
+    for entry in cached.models:
+        if entry.id == model_name and entry.completion_price_per_million is not None:
+            return entry.completion_price_per_million
+    return None
+
+
+def _resolve_output_price(
+    model_proxy: ModelListProxy,
+    provider: str,
+    model_name: str,
+) -> float:
+    """Return the output price per 1 M tokens for *model_name*.
+
+    Resolution order:
+    1. Provider is local → 0.
+    2. Cached OpenRouter catalogue entry → live price.
+    3. Static :data:`MODEL_OUTPUT_PRICE_PER_MILLION` table.
+    4. :data:`DEFAULT_OUTPUT_PRICE_PER_MILLION`.
+    """
+    if provider in LOCAL_PROVIDERS:
+        return 0.0
+    cached = _lookup_cached_pricing(model_proxy, provider, model_name)
+    if cached is not None:
+        return cached
+    return MODEL_OUTPUT_PRICE_PER_MILLION.get(
+        model_name, DEFAULT_OUTPUT_PRICE_PER_MILLION
+    )
 
 
 @router.post("/estimate-cost", response_model=CostEstimateResponse)
-def estimate_cost(request: CostEstimateRequest) -> CostEstimateResponse:
+def estimate_cost(
+    request: CostEstimateRequest,
+    model_proxy: ModelListProxy = Depends(get_model_list_proxy),
+) -> CostEstimateResponse:
     """Return an order-of-magnitude cost estimate for a flow run.
 
-    The estimate uses a chars-to-tokens heuristic and a per-model rate
-    lookup table. It is intentionally rough: the purpose is to let the
-    user catch accidental large runs before they start, not to produce
-    an invoice-grade projection.
+    The estimate is based on the ``max_tokens`` budget from the LLM
+    Call node multiplied by the number of API calls (rows times the
+    number of LLM-using processors).  Pricing is looked up from the
+    cached provider catalogue when available, falling back to a static
+    table sourced from official pricing pages.
 
     Args:
-        request (CostEstimateRequest): Flow definition plus data stats.
+        request (CostEstimateRequest): Flow definition plus row count.
+        model_proxy (ModelListProxy): Injected model-list proxy (used
+            to read cached pricing from Redis).
 
     Returns:
-        CostEstimateResponse: Estimated tokens, cost, and a summary
-        message.
+        CostEstimateResponse: Estimated tokens, cost, and a summary.
     """
     flow_block = request.flow
     nodes = flow_block.get("nodes", []) or []
+    edges = flow_block.get("edges", []) or []
+    settings = flow_block.get("settings") or {}
+
     model_name = "unknown"
-    step_count = 0
+    provider = "unknown"
+    max_tokens = 1024
+
     for node in nodes:
         if not isinstance(node, dict):
             continue
-        node_type = node.get("type")
+        if node.get("type") != "llm_call":
+            continue
         node_config = node.get("config") or {}
         if not isinstance(node_config, dict):
             node_config = {}
-        if node_type == "llm_call" and model_name == "unknown":
-            candidate_model = node_config.get("model")
-            if isinstance(candidate_model, str) and candidate_model:
-                model_name = candidate_model
-        elif node_type == "processor":
-            step_count += 1
+        candidate_model = node_config.get("model")
+        if isinstance(candidate_model, str) and candidate_model and model_name == "unknown":
+            model_name = candidate_model
+            provider = str(node_config.get("provider", "unknown"))
+            raw_max = node_config.get("max_tokens")
+            if isinstance(raw_max, (int, float)) and raw_max > 0:
+                max_tokens = int(raw_max)
 
-    estimated_input_tokens = request.total_characters // CHARS_PER_TOKEN
-    total_tokens = estimated_input_tokens * max(step_count, 1)
-
-    cost_per_million = MODEL_COST_PER_MILLION_TOKENS.get(
-        model_name, DEFAULT_COST_PER_MILLION_TOKENS
+    llm_edges = sum(
+        1
+        for e in edges
+        if isinstance(e, dict) and e.get("type") == "llm_call"
     )
-    estimated_cost = (total_tokens / 1_000_000) * cost_per_million
+
+    processing_limit = None
+    if isinstance(settings, dict):
+        raw_limit = settings.get("processing_limit")
+        if isinstance(raw_limit, (int, float)) and raw_limit > 0:
+            processing_limit = int(raw_limit)
+
+    row_count = processing_limit if processing_limit is not None else request.row_count
+    api_calls = row_count * max(llm_edges, 1)
+
+    is_local = provider in LOCAL_PROVIDERS
+    output_price = _resolve_output_price(model_proxy, provider, model_name)
+
+    estimated_tokens = api_calls * max_tokens
+    estimated_cost = (estimated_tokens / 1_000_000) * output_price
+
+    if is_local:
+        price_label = "free (local)"
+    else:
+        price_label = f"${output_price:.2f}/1M tokens"
 
     message = (
-        f"~{total_tokens:,} tokens across {step_count} step(s) on "
-        f"{model_name} @ ${cost_per_million:.2f}/1M tokens = "
-        f"~${estimated_cost:.4f}"
+        f"{api_calls:,} API calls × {max_tokens:,} max_tokens = "
+        f"~{estimated_tokens:,} tokens on {model_name} @ {price_label}"
+        f" = ~${estimated_cost:.4f}"
     )
 
     return CostEstimateResponse(
-        estimated_tokens=total_tokens,
-        estimated_cost_usd=round(estimated_cost, 6),
         model=model_name,
-        step_count=step_count,
+        provider=provider,
+        is_local=is_local,
+        model_price_per_million_tokens=output_price,
+        api_calls=api_calls,
+        max_tokens_per_call=max_tokens,
+        estimated_tokens=estimated_tokens,
+        estimated_cost_usd=round(estimated_cost, 6),
         message=message,
     )
 

@@ -75,6 +75,14 @@ class ProviderModel(BaseModel):
             the provider (OpenRouter only; ``None`` for OpenAI).
         context_length (Optional[int]): Maximum context length in
             tokens (OpenRouter only; ``None`` for OpenAI).
+        max_output_tokens (Optional[int]): Maximum output tokens the
+            model can generate per response. Extracted from the
+            upstream catalogue when available.
+        prompt_price_per_million (Optional[float]): Input/prompt cost
+            per 1 M tokens in USD (OpenRouter; ``None`` when the
+            upstream does not report pricing).
+        completion_price_per_million (Optional[float]): Output/completion
+            cost per 1 M tokens in USD.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -83,6 +91,9 @@ class ProviderModel(BaseModel):
     label: str
     description: Optional[str] = None
     context_length: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    prompt_price_per_million: Optional[float] = None
+    completion_price_per_million: Optional[float] = None
 
 
 class ProviderModelsResponse(BaseModel):

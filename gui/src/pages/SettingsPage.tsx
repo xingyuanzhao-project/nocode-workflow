@@ -37,6 +37,12 @@ const LOCAL_PROVIDER_LABELS: Record<LocalProviderName, string> = {
   llama_cpp: "llama.cpp",
 };
 
+const LOCAL_PROVIDER_PLACEHOLDER: Record<LocalProviderName, string> = {
+  ollama: "http://localhost:11434/v1",
+  vllm: "http://localhost:8000/v1",
+  llama_cpp: "http://localhost:8080/v1",
+};
+
 export default function SettingsPage(): JSX.Element {
   const query_client = useQueryClient();
 
@@ -264,7 +270,7 @@ function LocalEndpointRow({
         <input
           type="text"
           className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm font-mono placeholder:text-muted-foreground"
-          placeholder={endpoint_item.api_base}
+          placeholder={LOCAL_PROVIDER_PLACEHOLDER[endpoint_item.provider]}
           value={url_input}
           onChange={(event) => {
             set_url_input(event.target.value);

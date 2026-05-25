@@ -1,0 +1,83 @@
+flow:
+  name: test_e2e_linear
+  description: "E2E test: linear multi-processor chain (input->A->B->output)"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/df_text_by_report.csv
+        input_columns:
+          - column: text
+
+    - id: proc_a
+      type: processor
+      config:
+        prompt:
+          instructions:
+            - "Summarize the input text in exactly one sentence."
+            - "Return the summary in the 'summary' field of the output JSON."
+        io_schema:
+          output:
+            summary:
+              type: string
+
+    - id: proc_b
+      type: processor
+      config:
+        prompt:
+          instructions:
+            - "Read the 'summary' field from the input."
+            - "Extract exactly 3 keywords from it, comma-separated."
+            - "Return them in the 'keywords' field of the output JSON."
+        io_schema:
+          output:
+            keywords:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: google/gemini-2.0-flash-001
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/test_e2e_linear/output.csv
+        output_fields:
+          - keywords
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_a
+    - type: feedforward
+      source: proc_a
+      target: proc_b
+    - type: feedforward
+      source: proc_b
+      target: output_1
+    - type: llm_call
+      source: proc_a
+      target: llm_1
+    - type: llm_call
+      source: proc_b
+      target: llm_1
+
+  settings:
+    processing_limit: 1
+    async:
+      max_concurrent_rows: 1
+      max_concurrent_llm_calls: 1
+      max_retries: 2
+    logging:
+      file: results_custom/test_e2e_linear/processing.log
+    display:
+      use_progress_bar: false
+    prompts: config/prompts.json

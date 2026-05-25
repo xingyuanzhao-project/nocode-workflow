@@ -251,17 +251,16 @@ def set_local_endpoint(
     return list_providers()
 
 
-def _rewrite_localhost_for_docker(url: str) -> str:
-    """Replace ``localhost`` with ``host.docker.internal`` when running
-    inside a Docker container, so the backend can reach services on
-    the host machine."""
-    import platform
+def _resolve_local_url(url: str) -> str:
+    """Derive the reachable IP-address URL from a localhost URL.
 
-    if platform.system() == "Linux":
-        return url.replace("://localhost", "://host.docker.internal").replace(
-            "://127.0.0.1", "://host.docker.internal"
-        )
-    return url
+    Delegates to :func:`src.localhost_resolver.resolve_localhost_url`
+    which detects topology (Docker, WSL2, native) and replaces the host
+    component when localhost is not directly reachable.
+    """
+    from src.localhost_resolver import resolve_localhost_url
+
+    return resolve_localhost_url(url)
 
 
 @router.post("/local-endpoint/test", response_model=LocalEndpointTestResponse)
@@ -271,9 +270,9 @@ async def test_local_endpoint(
     """Test a local endpoint by hitting its ``/models`` path.
 
     Compatible with Ollama, vLLM, and llama.cpp servers that expose
-    an OpenAI-compatible ``GET /models`` endpoint. When running inside
-    Docker, ``localhost`` URLs are rewritten to ``host.docker.internal``
-    so the container can reach the host machine.
+    an OpenAI-compatible ``GET /models`` endpoint. The user-entered
+    localhost URL is resolved to a reachable IP-address URL via
+    :func:`_resolve_local_url` before the probe.
 
     Args:
         request (LocalEndpointTestRequest): Base URL to test.
@@ -281,7 +280,7 @@ async def test_local_endpoint(
     Returns:
         LocalEndpointTestResponse: Reachability and model list.
     """
-    base = _rewrite_localhost_for_docker(request.api_base.rstrip("/"))
+    base = _resolve_local_url(request.api_base.rstrip("/"))
     models_url = f"{base}/models"
     try:
         async with httpx.AsyncClient(timeout=10.0) as http_client:

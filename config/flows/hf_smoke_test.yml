@@ -25,8 +25,6 @@ flow:
       api_base: https://router.huggingface.co/v1
       api_key_env: OPENROUTER_API_KEY
       temperature: 0.0
-      max_tokens_summary: 256
-      max_tokens_classification: 64
 
   data:
     input_csv: data/df_text_by_report.csv

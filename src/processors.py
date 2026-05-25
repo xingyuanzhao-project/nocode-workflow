@@ -57,7 +57,6 @@ class GenericProcessor:
         logger: logging.Logger,
         *,
         temperature: float = 0.0,
-        max_tokens: int = 1024,
         llm_semaphore: Optional[asyncio.Semaphore] = None,
     ) -> None:
         self.client = client
@@ -66,7 +65,6 @@ class GenericProcessor:
         self.provider = provider
         self.logger = logger
         self.temperature = temperature
-        self.max_tokens = max_tokens
         self.llm_semaphore = llm_semaphore
 
         self._output_keys: List[str] = list(io_schema.output.keys())
@@ -110,7 +108,6 @@ class GenericProcessor:
             "model": self.model_name,
             "messages": messages,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
             "response_format": self._response_format,
         }
         kwargs = normalize_request_kwargs(self.provider, kwargs)

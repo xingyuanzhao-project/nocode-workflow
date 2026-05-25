@@ -35,8 +35,6 @@ flow:
       api_base: https://openrouter.ai/api/v1
       api_key_env: OPENROUTER_API_KEY
       temperature: 0.0
-      max_tokens_summary: 1024
-      max_tokens_classification: 256
 
   data:
     # Reads an existing summary-shaped CSV. The openrouter smoke test

@@ -107,208 +107,60 @@ def to_response_format(
         Dict[str, Any]: The OpenAI ``response_format`` dict.
 
     Example:
-        Verify the converter output matches the hardcoded ``summary``
-        response format in :mod:`src.processors` byte-for-byte:
+        Derive JSON Schema type from ``data_type``:
 
-        >>> summary_schema = IOSchema(output={
-        ...     "info_found": {"type": "string"},
-        ...     "relevant_context": {"type": "array"},
-        ...     "summary": {"type": "string"},
+        >>> schema = IOSchema(output={
+        ...     "entity": {"data_type": "string"},
+        ...     "strength": {"data_type": "numeric"},
+        ...     "label": {"data_type": "category", "options": ["A", "B"]},
         ... })
-        >>> expected_summary = {"type": "json_schema", "json_schema": {
-        ...     "name": "summary",
+        >>> result = to_response_format(schema, "extraction")
+        >>> result == {"type": "json_schema", "json_schema": {
+        ...     "name": "extraction",
         ...     "schema": {
         ...         "type": "object",
         ...         "properties": {
-        ...             "info_found": {"type": "string"},
-        ...             "relevant_context": {"type": "array"},
-        ...             "summary": {"type": "string"},
+        ...             "entity": {"type": "string"},
+        ...             "strength": {"type": "number"},
+        ...             "label": {"type": "string"},
         ...         },
-        ...         "required": ["info_found", "relevant_context", "summary"],
+        ...         "required": ["entity", "strength", "label"],
         ...     },
         ... }}
-        >>> to_response_format(summary_schema, "summary") == expected_summary
         True
 
-        Verify the converter output matches the hardcoded
-        ``conversation_summary`` response format byte-for-byte:
+        Binary and category both map to JSON Schema ``"string"``:
 
-        >>> conversation_schema = IOSchema(output={
-        ...     "info_found": {"type": "string"},
-        ...     "relevant_context": {"type": "array"},
-        ...     "summary_by_item": {
-        ...         "type": "object",
-        ...         "description": "Per-label extractive spans for traceback",
-        ...         "additionalProperties": {
-        ...             "type": "array",
-        ...             "items": {
-        ...                 "type": "object",
-        ...                 "properties": {"span": {"type": "string"}},
-        ...                 "required": ["span"],
-        ...             },
-        ...         },
-        ...     },
-        ...     "summary": {"type": "string"},
+        >>> schema = IOSchema(output={
+        ...     "is_relevant": {"data_type": "binary"},
+        ...     "category": {"data_type": "category"},
         ... })
-        >>> expected_conv = {"type": "json_schema", "json_schema": {
-        ...     "name": "conversation_summary",
-        ...     "schema": {
-        ...         "type": "object",
-        ...         "properties": {
-        ...             "info_found": {"type": "string"},
-        ...             "relevant_context": {"type": "array"},
-        ...             "summary_by_item": {
-        ...                 "type": "object",
-        ...                 "description": "Per-label extractive spans for traceback",
-        ...                 "additionalProperties": {
-        ...                     "type": "array",
-        ...                     "items": {
-        ...                         "type": "object",
-        ...                         "properties": {"span": {"type": "string"}},
-        ...                         "required": ["span"],
-        ...                     },
-        ...                 },
-        ...             },
-        ...             "summary": {"type": "string"},
-        ...         },
-        ...         "required": [
-        ...             "info_found", "relevant_context",
-        ...             "summary_by_item", "summary",
-        ...         ],
-        ...     },
-        ... }}
-        >>> to_response_format(conversation_schema, "conversation_summary") == expected_conv
-        True
+        >>> props = to_response_format(schema, "test")["json_schema"]["schema"]["properties"]
+        >>> props["is_relevant"]
+        {'type': 'string'}
+        >>> props["category"]
+        {'type': 'string'}
 
-        Verify the converter output matches the hardcoded
-        ``classification`` response format byte-for-byte:
+        Integer maps to JSON Schema ``"integer"``:
 
-        >>> classification_schema = IOSchema(output={
-        ...     "evidence": {"type": "string"},
-        ...     "result": {"type": "string"},
-        ... })
-        >>> expected_cls = {"type": "json_schema", "json_schema": {
-        ...     "name": "classification",
-        ...     "schema": {
-        ...         "type": "object",
-        ...         "properties": {
-        ...             "evidence": {"type": "string"},
-        ...             "result": {"type": "string"},
-        ...         },
-        ...         "required": ["evidence", "result"],
-        ...     },
-        ... }}
-        >>> to_response_format(classification_schema, "classification") == expected_cls
-        True
-
-        Verify the converter output matches the hardcoded
-        ``label_extract`` response format byte-for-byte:
-
-        >>> label_extract_schema = IOSchema(output={
-        ...     "info_found": {"type": "string"},
-        ...     "spans": {
-        ...         "type": "array",
-        ...         "items": {
-        ...             "type": "object",
-        ...             "properties": {"span": {"type": "string"}},
-        ...             "required": ["span"],
-        ...         },
-        ...     },
-        ...     "confidence_score": {"type": "string"},
-        ... })
-        >>> expected_lx = {"type": "json_schema", "json_schema": {
-        ...     "name": "label_extract",
-        ...     "schema": {
-        ...         "type": "object",
-        ...         "properties": {
-        ...             "info_found": {"type": "string"},
-        ...             "spans": {
-        ...                 "type": "array",
-        ...                 "items": {
-        ...                     "type": "object",
-        ...                     "properties": {"span": {"type": "string"}},
-        ...                     "required": ["span"],
-        ...                 },
-        ...             },
-        ...             "confidence_score": {"type": "string"},
-        ...         },
-        ...         "required": ["info_found", "spans", "confidence_score"],
-        ...     },
-        ... }}
-        >>> to_response_format(label_extract_schema, "label_extract") == expected_lx
-        True
-
-        Verify the converter output matches the hardcoded
-        ``label_summary`` response format byte-for-byte:
-
-        >>> label_summary_schema = IOSchema(output={
-        ...     "info_found": {"type": "string"},
-        ...     "spans_by_item": {
-        ...         "type": "object",
-        ...         "additionalProperties": {
-        ...             "type": "array",
-        ...             "items": {
-        ...                 "type": "object",
-        ...                 "properties": {"span": {"type": "string"}},
-        ...                 "required": ["span"],
-        ...             },
-        ...         },
-        ...     },
-        ...     "summary": {"type": "string"},
-        ... })
-        >>> expected_ls = {"type": "json_schema", "json_schema": {
-        ...     "name": "label_summary",
-        ...     "schema": {
-        ...         "type": "object",
-        ...         "properties": {
-        ...             "info_found": {"type": "string"},
-        ...             "spans_by_item": {
-        ...                 "type": "object",
-        ...                 "additionalProperties": {
-        ...                     "type": "array",
-        ...                     "items": {
-        ...                         "type": "object",
-        ...                         "properties": {"span": {"type": "string"}},
-        ...                         "required": ["span"],
-        ...                     },
-        ...                 },
-        ...             },
-        ...             "summary": {"type": "string"},
-        ...         },
-        ...         "required": ["info_found", "spans_by_item", "summary"],
-        ...     },
-        ... }}
-        >>> to_response_format(label_summary_schema, "label_summary") == expected_ls
-        True
-
-        Verify the converter output matches the hardcoded
-        ``label_synthesis`` response format byte-for-byte:
-
-        >>> label_synthesis_schema = IOSchema(output={
-        ...     "info_found": {"type": "string"},
-        ...     "summary": {"type": "string"},
-        ... })
-        >>> expected_lsn = {"type": "json_schema", "json_schema": {
-        ...     "name": "label_synthesis",
-        ...     "schema": {
-        ...         "type": "object",
-        ...         "properties": {
-        ...             "info_found": {"type": "string"},
-        ...             "summary": {"type": "string"},
-        ...         },
-        ...         "required": ["info_found", "summary"],
-        ...     },
-        ... }}
-        >>> to_response_format(label_synthesis_schema, "label_synthesis") == expected_lsn
-        True
+        >>> schema = IOSchema(output={"count": {"data_type": "integer"}})
+        >>> to_response_format(schema, "test")["json_schema"]["schema"]["properties"]["count"]
+        {'type': 'integer'}
     """
-    _EXTRA_KEYS = {"data_type", "options", "range", "interval"}
+    _DATA_TYPE_TO_JSON_TYPE = {
+        "string": "string",
+        "binary": "string",
+        "category": "string",
+        "numeric": "number",
+        "integer": "integer",
+    }
 
     clean_properties: Dict[str, Any] = {}
     for field_name, field_spec in io_schema.output.items():
         if isinstance(field_spec, dict):
+            data_type = field_spec.get("data_type", "string")
             clean_properties[field_name] = {
-                k: v for k, v in field_spec.items() if k not in _EXTRA_KEYS
+                "type": _DATA_TYPE_TO_JSON_TYPE.get(data_type, "string"),
             }
         else:
             clean_properties[field_name] = field_spec
@@ -351,22 +203,21 @@ def to_prompt_output_format_text(io_schema: IOSchema) -> str:
             descriptors[field_name] = field_spec
             continue
 
-        entry: Dict[str, Any] = {"type": field_spec.get("type", "string")}
-        data_type = field_spec.get("data_type")
-        if data_type:
-            entry["data_type"] = data_type
+        data_type = field_spec.get("data_type", "string")
+        entry: Dict[str, Any] = {"data_type": data_type}
 
         options = field_spec.get("options")
         if isinstance(options, list) and options:
             entry["valid_options"] = options
 
-        range_val = field_spec.get("range")
-        if range_val:
-            entry["range"] = range_val
+        range_start = field_spec.get("range_start")
+        range_end = field_spec.get("range_end")
+        if range_start or range_end:
+            entry["range"] = f"{range_start or ''} to {range_end or ''}"
 
-        interval_val = field_spec.get("interval")
-        if interval_val:
-            entry["interval"] = interval_val
+        step_val = field_spec.get("step")
+        if step_val:
+            entry["step"] = step_val
 
         descriptors[field_name] = entry
 

@@ -25,10 +25,8 @@ const providerFormSchema = z.object({
   resource_id: z.string().min(1),
   provider: providerNameSchema,
   model: z.string().min(1),
-  api_base: z.string().nullable(),
   api_key_env: z.string().nullable(),
   temperature: z.coerce.number().min(0).max(2),
-  max_tokens: z.coerce.number().int().positive(),
 });
 type ProviderFormValues = z.infer<typeof providerFormSchema>;
 
@@ -68,10 +66,8 @@ function readInitialValues(node: GraphNode): ProviderFormValues {
         : "default",
     provider: provider_value,
     model: typeof data.model === "string" ? data.model : "",
-    api_base: typeof data.api_base === "string" ? data.api_base : null,
     api_key_env: PROVIDER_ENV_VAR[provider_value] ?? null,
     temperature: typeof data.temperature === "number" ? data.temperature : 0,
-    max_tokens: typeof data.max_tokens === "number" ? data.max_tokens : 1024,
   };
 }
 
@@ -95,6 +91,7 @@ export function LLMProviderConfigForm({
     const derived = PROVIDER_ENV_VAR[current_provider] ?? null;
     form.setValue("api_key_env", derived, { shouldDirty: true });
   }, [current_provider]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const models_query = useQuery({
     queryKey: ["provider-models", current_provider],
     queryFn: () => getProviderModels(current_provider),
@@ -152,22 +149,6 @@ export function LLMProviderConfigForm({
       </label>
 
       <label className="flex flex-col gap-1 text-xs">
-        <span className="font-medium">API base URL</span>
-        <input
-          className="rounded-md border bg-background px-2 py-1 text-sm"
-          placeholder="https://openrouter.ai/api/v1"
-          value={form.watch("api_base") ?? ""}
-          onChange={(event) =>
-            form.setValue(
-              "api_base",
-              event.target.value === "" ? null : event.target.value,
-              { shouldDirty: true },
-            )
-          }
-        />
-      </label>
-
-      <label className="flex flex-col gap-1 text-xs">
         <span className="font-medium">API key env var</span>
         <input
           className="rounded-md border bg-muted px-2 py-1 text-sm text-muted-foreground"
@@ -180,25 +161,15 @@ export function LLMProviderConfigForm({
         </span>
       </label>
 
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">Temperature</span>
-          <input
-            type="number"
-            step="0.05"
-            className="rounded-md border bg-background px-2 py-1 text-sm"
-            {...form.register("temperature")}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="font-medium">max_tokens</span>
-          <input
-            type="number"
-            className="rounded-md border bg-background px-2 py-1 text-sm"
-            {...form.register("max_tokens")}
-          />
-        </label>
-      </div>
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium">Temperature</span>
+        <input
+          type="number"
+          step="0.05"
+          className="rounded-md border bg-background px-2 py-1 text-sm"
+          {...form.register("temperature")}
+        />
+      </label>
     </form>
   );
 }

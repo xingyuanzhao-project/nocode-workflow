@@ -68,8 +68,6 @@ function buildMinimalFlowBody(
         provider: "openrouter",
         model: "meta-llama/llama-3.1-70b-instruct",
         temperature: 0,
-        max_tokens_summary: 1024,
-        max_tokens_classification: 256,
       },
     ],
     data: {
@@ -167,24 +165,32 @@ describe("processing_limit propagation", () => {
 describe("costEstimateResponseSchema", () => {
   it("accepts a valid cost estimate response", () => {
     const parsed = costEstimateResponseSchema.parse({
-      estimated_tokens: 25000,
-      estimated_cost_usd: 0.05,
       model: "meta-llama/llama-3.1-70b-instruct",
-      step_count: 2,
-      message: "Estimated cost for 100 rows: $0.05",
+      provider: "openrouter",
+      is_local: false,
+      model_price_per_million_tokens: 0.40,
+      api_calls: 200,
+      max_tokens_per_call: 1024,
+      estimated_tokens: 204800,
+      estimated_cost_usd: 0.08,
+      message: "200 API calls × 1,024 max_tokens = ~204,800 tokens",
     });
-    expect(parsed.estimated_tokens).toBe(25000);
-    expect(parsed.estimated_cost_usd).toBe(0.05);
+    expect(parsed.estimated_tokens).toBe(204800);
+    expect(parsed.estimated_cost_usd).toBe(0.08);
     expect(parsed.model).toBe("meta-llama/llama-3.1-70b-instruct");
-    expect(parsed.step_count).toBe(2);
+    expect(parsed.api_calls).toBe(200);
   });
 
   it("rejects a response missing the model field", () => {
     expect(() =>
       costEstimateResponseSchema.parse({
-        estimated_tokens: 25000,
-        estimated_cost_usd: 0.05,
-        step_count: 2,
+        provider: "openrouter",
+        is_local: false,
+        model_price_per_million_tokens: 0.40,
+        api_calls: 200,
+        max_tokens_per_call: 1024,
+        estimated_tokens: 204800,
+        estimated_cost_usd: 0.08,
         message: "msg",
       }),
     ).toThrow();

@@ -26,8 +26,6 @@ flow:
       api_base: https://openrouter.ai/api/v1
       api_key_env: OPENROUTER_API_KEY
       temperature: 0.0
-      max_tokens_summary: 1024
-      max_tokens_classification: 256
 
     # To use local vLLM instead, swap the default resource with:
     # - id: default
@@ -37,8 +35,6 @@ flow:
     #   api_base: http://localhost:8000/v1
     #   api_key: dummy
     #   temperature: 0.0
-    #   max_tokens_summary: 1024
-    #   max_tokens_classification: 256
 
   # ── Data source & column mapping ─────────────────────────────────
   # The user's CSV can have any column names. `column_roles` maps them

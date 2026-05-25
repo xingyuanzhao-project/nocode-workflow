@@ -78,8 +78,6 @@ flow:
       api_base: https://openrouter.ai/api/v1
       api_key_env: OPENROUTER_API_KEY  # read from .env, never stored in YAML
       temperature: 0.0
-      max_tokens_summary: 1024
-      max_tokens_classification: 256
 
     # To use local vLLM instead, swap the default resource:
     # - id: default
@@ -89,8 +87,6 @@ flow:
     #   api_base: http://localhost:8000/v1
     #   api_key: dummy
     #   temperature: 0.0
-    #   max_tokens_summary: 1024
-    #   max_tokens_classification: 256
 
   # ── Data source & column mapping ─────────────────────────────────
   # The user's CSV can have any column names.  The "column_roles"
@@ -235,7 +231,7 @@ Responsibilities:
 
    | `type` value | Class(es) instantiated | Constructor args | Public method(s) called by the runner | Notes |
    |---|---|---|---|---|
-   | `single_summary` | `AsyncMessyTextProcessor(client, config, taxonomy, logger, llm_semaphore?)` | config needs `model.name`, `processing.{temperature, max_tokens_summary, max_tokens_classification}`, `prompts` (from prompts.json) ; taxonomy needs `context_definitions`, `label_options` | `await .summarize_text(text, doc_id=) → str` | Per-row, no entity grouping. Calls `_get_summary_args` internally. Returns summary string; structured result stored on `.last_summary_result`. |
+   | `single_summary` | `AsyncMessyTextProcessor(client, config, taxonomy, logger, llm_semaphore?)` | config needs `model.name`, `processing.{temperature}`, `prompts` (from prompts.json) ; taxonomy needs `context_definitions`, `label_options` | `await .summarize_text(text, doc_id=) → str` | Per-row, no entity grouping. Calls `_get_summary_args` internally. Returns summary string; structured result stored on `.last_summary_result`. |
    | `conversation_summary_first` | `AsyncMessyTextProcessor(client, config, taxonomy, logger)` → wrapped by `AsyncMessyTextConversationTurnProcessor(processor)` | Same config as above; turn processor just wraps the processor | `await turn_processor.process_turn(raw_text, state, doc_id=) → (summary, updated_state)` | Unit: document, grouped by entity. First document in the entity (no `previous_summary`). `_get_conversation_summary_args` selects `prompts.summary_first`. Returns `ProcessorResult` with `info_found`, `relevant_context`, `summary_by_item` (per-label extractive spans), `summary`. |
    | `conversation_summary_update` | Same `AsyncMessyTextConversationTurnProcessor(processor)` (reused from first step) | Same objects, no re-instantiation | `await turn_processor.process_turn(raw_text, state, doc_id=) → (summary, updated_state)` | Unit: document, grouped by entity. Subsequent documents (has `previous_summary` from prior turn). `_get_conversation_summary_args` selects `prompts.summary_update`, which receives `{previous_summary}`, `{previous_relevant_context}`, `{previous_summary_by_item}` from the prior turn's result. Runner owns `MessyTextConversationState` and a `running_summary` string; only informative turns (`info_found != FALSE`) update `running_summary`. |
    | `label_extraction` | One `AsyncLabelExtractor(client, config, label_key, label_definition, logger, llm_semaphore?)` per taxonomy label | config same as above; `label_key` and `label_definition` come from `taxonomy["context_definitions"].items()` | `await .extract_label(text, previous_spans=None, doc_id=) → ProcessorResult` | Per-document × per-label. Returns `ProcessorResult` with `info_found`, `spans` (array of `{span: str}`), `confidence_score`. Calls `_get_label_extract_args` internally using `prompts.label_spans_extract`. |
@@ -1154,12 +1150,6 @@ node_types:
       - name: temperature
         type: number
         default: 0.0
-      - name: max_tokens_summary
-        type: number
-        default: 1024
-      - name: max_tokens_classification
-        type: number
-        default: 256
 
   - id: taxonomy
     category: resource
@@ -1656,8 +1646,6 @@ flow:
       api_base: https://openrouter.ai/api/v1
       api_key_env: OPENROUTER_API_KEY
       temperature: 0.0
-      max_tokens_summary: 1024
-      max_tokens_classification: 256
 
   data:
     input_csv: my_data.csv
@@ -2008,7 +1996,6 @@ flow:
       model: meta-llama/llama-3.1-8b-instruct
       api_key_source: user
       temperature: 0.0
-      max_tokens_summary: 1024
 
     - id: llm_summarize
       type: llm_provider
@@ -2016,7 +2003,6 @@ flow:
       model: meta-llama/llama-3.1-70b-instruct
       api_key_source: user
       temperature: 0.0
-      max_tokens_summary: 1024
 
   data:
     input_csv: my_data.csv

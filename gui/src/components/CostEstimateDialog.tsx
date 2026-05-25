@@ -5,9 +5,10 @@
  * submitted. The dialog fetches an estimate from
  * ``POST /api/flow/estimate-cost`` and asks the user to confirm.
  *
- * The estimate is intentionally rough (chars / 4 ~ tokens, times a
- * per-model rate). Its purpose is to catch accidental large runs, not
- * to produce an exact bill.
+ * The estimate multiplies the LLM node's ``max_tokens`` budget by the
+ * number of API calls (rows × LLM-using processors) and looks up the
+ * per-model output-token price from the provider's cached catalogue
+ * or a static fallback table.
  */
 
 import { useEffect } from "react";
@@ -72,8 +73,16 @@ export function CostEstimateDialog({
                 <span className="font-mono text-xs">{estimate.model}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Steps</span>
-                <span>{estimate.step_count}</span>
+                <span className="text-muted-foreground">Model Price</span>
+                <span>
+                  {estimate.is_local
+                    ? "Free (local)"
+                    : `$${estimate.model_price_per_million_tokens.toFixed(2)} / 1M tokens`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">API Calls</span>
+                <span>{estimate.api_calls.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Est. tokens</span>
@@ -82,9 +91,11 @@ export function CostEstimateDialog({
               <div className="mt-1 flex justify-between border-t pt-1 font-medium">
                 <span>Est. cost</span>
                 <span>
-                  ${estimate.estimated_cost_usd < 0.01
-                    ? "< 0.01"
-                    : estimate.estimated_cost_usd.toFixed(2)}
+                  {estimate.is_local
+                    ? "$0.00"
+                    : estimate.estimated_cost_usd < 0.01
+                      ? "< $0.01"
+                      : `$${estimate.estimated_cost_usd.toFixed(2)}`}
                 </span>
               </div>
             </div>

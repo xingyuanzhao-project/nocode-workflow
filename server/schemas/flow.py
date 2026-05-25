@@ -173,12 +173,14 @@ class CostEstimateRequest(BaseModel):
     """Body of ``POST /api/flow/estimate-cost``.
 
     Attributes:
-        flow (Dict[str, Any]): Raw flow definition — used to read the
-            model name and step count for the estimate.
-        row_count (int): Number of input rows the run would process.
-        total_characters (int): Approximate total character count across
-            all text cells in the input data. The estimator converts
-            this to tokens via a ``chars / 4`` heuristic.
+        flow (Dict[str, Any]): Raw flow definition — the estimator
+            reads model, provider, ``max_tokens``, edges, and
+            ``settings.processing_limit`` from the flow body.
+        row_count (int): Fallback number of input rows when
+            ``settings.processing_limit`` is not set on the flow.
+        total_characters (int): Kept for wire compatibility; no longer
+            used by the estimator (tokens are derived from
+            ``max_tokens`` instead).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -192,20 +194,32 @@ class CostEstimateResponse(BaseModel):
     """Response of ``POST /api/flow/estimate-cost``.
 
     Attributes:
-        estimated_tokens (int): Rough input token estimate
-            (``total_characters / 4``).
-        estimated_cost_usd (float): Order-of-magnitude cost in USD.
         model (str): Model name used for the estimate.
-        step_count (int): Number of processing steps in the flow.
+        provider (str): Provider name (``openrouter``, ``google``, etc.).
+        is_local (bool): ``True`` when the provider is a local server
+            (ollama / vllm / llama_cpp) — price is always zero.
+        model_price_per_million_tokens (float): Output-token cost in
+            USD per 1 M tokens, sourced from the provider's cached
+            pricing or a static fallback table.
+        api_calls (int): Estimated total LLM API calls
+            (``row_count * llm_edges``).
+        max_tokens_per_call (int): ``max_tokens`` budget configured on
+            the LLM Call node.
+        estimated_tokens (int): ``api_calls * max_tokens_per_call``.
+        estimated_cost_usd (float): Order-of-magnitude cost in USD.
         message (str): Human-readable summary of the estimate.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    model: str
+    provider: str
+    is_local: bool
+    model_price_per_million_tokens: float
+    api_calls: int
+    max_tokens_per_call: int
     estimated_tokens: int
     estimated_cost_usd: float
-    model: str
-    step_count: int
     message: str
 
 

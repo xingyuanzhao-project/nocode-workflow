@@ -80,8 +80,8 @@ class TestIOSchemaEmpty:
 
     def test_input_block_does_not_flow_into_response_format(self) -> None:
         schema = IOSchema(
-            input={"some_input_field": {"type": "string"}},
-            output={"summary": {"type": "string"}},
+            input={"some_input_field": {"data_type": "string"}},
+            output={"summary": {"data_type": "string"}},
         )
         response_format = to_response_format(schema, schema_name="with_input")
         assert "some_input_field" not in response_format["json_schema"]["schema"]["properties"]
@@ -93,6 +93,6 @@ class TestIOSchemaExtraFieldsRejected:
         with pytest.raises(ValueError):
             IOSchema(
                 input={},
-                output={"summary": {"type": "string"}},
+                output={"summary": {"data_type": "string"}},
                 unexpected_field="nope",  # type: ignore[call-arg]
             )

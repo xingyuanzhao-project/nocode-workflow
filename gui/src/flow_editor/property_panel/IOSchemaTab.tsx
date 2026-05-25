@@ -3,8 +3,8 @@
  *
  * Editable table of the processor's output fields. Each row carries
  * a ``field_name``, ``data_type``, ``required`` flag, and conditional
- * metadata (``options`` for category, ``range`` / ``interval`` for
- * numeric/integer).
+ * metadata (``options`` for category, ``range_start`` / ``range_end`` /
+ * ``step`` for numeric/integer).
  */
 
 import { useCallback, useMemo } from "react";
@@ -22,21 +22,14 @@ const DATA_TYPE_OPTIONS: { value: DataType; label: string }[] = [
   { value: "integer", label: "Integer" },
 ];
 
-const DATA_TYPE_TO_JSON_SCHEMA: Record<DataType, string> = {
-  string: "string",
-  binary: "string",
-  category: "string",
-  numeric: "number",
-  integer: "integer",
-};
-
 interface OutputFieldRow {
   field_name: string;
   data_type: DataType;
   required: boolean;
   options: string[];
-  range: string;
-  interval: string;
+  range_start: string;
+  range_end: string;
+  step: string;
 }
 
 function parseDataType(raw: unknown): DataType {
@@ -46,10 +39,6 @@ function parseDataType(raw: unknown): DataType {
   ) {
     return raw as DataType;
   }
-  if (raw === "number") return "numeric";
-  if (raw === "boolean") return "binary";
-  if (raw === "array") return "category";
-  if (raw === "integer") return "integer";
   return "string";
 }
 
@@ -82,12 +71,13 @@ function readOutputRows(node: GraphNode): OutputFieldRow[] {
           data_type: "string" as DataType,
           required: required_set.has(field_name),
           options: [],
-          range: "",
-          interval: "",
+          range_start: "",
+          range_end: "",
+          step: "",
         };
       }
       const rec = field_body as Record<string, unknown>;
-      const raw_data_type = rec.data_type ?? rec.type ?? "string";
+      const raw_data_type = rec.data_type ?? "string";
       const options_raw = rec.options;
       const options_list: string[] = Array.isArray(options_raw)
         ? options_raw.map((v) => String(v))
@@ -97,8 +87,9 @@ function readOutputRows(node: GraphNode): OutputFieldRow[] {
         data_type: parseDataType(raw_data_type),
         required: required_set.has(field_name),
         options: options_list,
-        range: String(rec.range ?? ""),
-        interval: String(rec.interval ?? ""),
+        range_start: String(rec.range_start ?? ""),
+        range_end: String(rec.range_end ?? ""),
+        step: String(rec.step ?? ""),
       };
     },
   );
@@ -110,14 +101,14 @@ function rowsToIoSchema(rows: OutputFieldRow[]): Record<string, unknown> {
   for (const row of rows) {
     if (!row.field_name) continue;
     const entry: Record<string, unknown> = {
-      type: DATA_TYPE_TO_JSON_SCHEMA[row.data_type],
       data_type: row.data_type,
     };
     if (row.data_type === "category") {
       entry.options = row.options;
     } else if (row.data_type === "numeric" || row.data_type === "integer") {
-      if (row.range) entry.range = row.range;
-      if (row.interval) entry.interval = row.interval;
+      if (row.range_start) entry.range_start = row.range_start;
+      if (row.range_end) entry.range_end = row.range_end;
+      if (row.step) entry.step = row.step;
     }
     output[row.field_name] = entry;
     if (row.required) {
@@ -171,8 +162,9 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
         data_type: "string",
         required: false,
         options: [],
-        range: "",
-        interval: "",
+        range_start: "",
+        range_end: "",
+        step: "",
       },
     ]);
   }, [rows, write_rows]);
@@ -236,8 +228,9 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
                       on_row_change(row_index, {
                         data_type: event.target.value as DataType,
                         options: [],
-                        range: "",
-                        interval: "",
+                        range_start: "",
+                        range_end: "",
+                        step: "",
                       })
                     }
                   >
@@ -249,49 +242,13 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
                   </select>
                 </label>
 
-                {(row.data_type === "numeric" ||
-                  row.data_type === "integer") ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="flex flex-col gap-0.5 text-xs">
-                      <span className="font-medium">Range</span>
-                      <input
-                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
-                        placeholder="e.g. 0–100"
-                        value={row.range}
-                        onChange={(event) =>
-                          on_row_change(row_index, {
-                            range: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="flex flex-col gap-0.5 text-xs">
-                      <span className="font-medium">Interval</span>
-                      <input
-                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
-                        placeholder="e.g. 1"
-                        value={row.interval}
-                        onChange={(event) =>
-                          on_row_change(row_index, {
-                            interval: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                ) : (
+                {row.data_type === "category" && (
                   <label className="flex flex-col gap-0.5 text-xs">
                     <span className="font-medium">
-                      {row.data_type === "category"
-                        ? "Available Options (comma-separated)"
-                        : "Available Options"}
+                      Available Options (comma-separated)
                     </span>
                     <input
-                      className="rounded-md border bg-background px-1.5 py-0.5 text-sm disabled:opacity-50"
-                      disabled={
-                        row.data_type === "string" ||
-                        row.data_type === "binary"
-                      }
+                      className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
                       value={row.options.join(", ")}
                       onChange={(event) =>
                         on_row_change(row_index, {
@@ -303,6 +260,81 @@ export function IOSchemaTab({ node }: IOSchemaTabProps): JSX.Element {
                       }
                     />
                   </label>
+                )}
+
+                {row.data_type === "numeric" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Range start</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 0"
+                        value={row.range_start}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            range_start: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Range end</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 100"
+                        value={row.range_end}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            range_end: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {row.data_type === "integer" && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Range start</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 0"
+                        value={row.range_start}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            range_start: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Range end</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 100"
+                        value={row.range_end}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            range_end: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-xs">
+                      <span className="font-medium">Step</span>
+                      <input
+                        className="rounded-md border bg-background px-1.5 py-0.5 text-sm"
+                        placeholder="e.g. 1"
+                        value={row.step}
+                        onChange={(event) =>
+                          on_row_change(row_index, {
+                            step: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
                 )}
               </div>
               <button

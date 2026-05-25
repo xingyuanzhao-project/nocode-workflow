@@ -88,18 +88,22 @@ function CodebookSelectorForm({ node }: { node: GraphNode }): JSX.Element {
     <div className="flex flex-col gap-3">
       <label className="flex flex-col gap-1 text-xs">
         <span className="font-medium">Codebook</span>
-        <select
-          className="rounded-md border bg-background px-2 py-1 text-sm"
-          value={selected_id}
-          onChange={(event) => on_change(event.target.value)}
-        >
-          <option value="">Select a codebook...</option>
-          {items.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
+        {codebooks_query.isLoading ? (
+          <span className="text-muted-foreground text-sm">Loading codebooks...</span>
+        ) : (
+          <select
+            className="rounded-md border bg-background px-2 py-1 text-sm"
+            value={selected_id}
+            onChange={(event) => on_change(event.target.value)}
+          >
+            <option value="">Select a codebook...</option>
+            {items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="text-muted-foreground">
           Choose from your saved codebooks (Menu &rarr; Codebook).
         </span>

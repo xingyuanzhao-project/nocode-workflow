@@ -74,7 +74,7 @@ export function PropertyPanel(): JSX.Element {
   };
 
   return (
-    <aside className="flex h-full w-96 shrink-0 flex-col border-l bg-background">
+    <aside className="flex h-full w-96 shrink-0 flex-col overflow-hidden border-l bg-background">
       <div className="border-b px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -107,7 +107,7 @@ export function PropertyPanel(): JSX.Element {
         </div>
       </div>
       {is_processor_node ? (
-        <Tabs defaultValue="config" className="flex flex-1 flex-col">
+        <Tabs defaultValue="config" className="flex min-h-0 flex-1 flex-col">
           <div className="border-b px-4 py-2">
             <TabsList>
               <TabsTrigger value="config">Config</TabsTrigger>

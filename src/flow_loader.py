@@ -99,8 +99,9 @@ Invariants enforced by this module
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field as dc_field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Literal, Optional
+from typing import Any, Dict, FrozenSet, List, Literal, Optional, Tuple
 
 import yaml
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -245,9 +246,6 @@ class LLMResource(BaseModel):
             :attr:`api_key`.
         temperature (float): Temperature forwarded to every LLM call
             produced against this resource.
-        max_tokens_summary (int): ``max_tokens`` for summary-style calls.
-        max_tokens_classification (int): ``max_tokens`` for classification
-            calls.
 
     Methods:
         validate_provider: Ensure :attr:`provider` is a registered value.
@@ -255,7 +253,7 @@ class LLMResource(BaseModel):
             not both set at the same time.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
     id: str
     type: Literal["llm_provider"] = "llm_provider"
@@ -265,8 +263,6 @@ class LLMResource(BaseModel):
     api_key: Optional[str] = None
     api_key_env: Optional[str] = None
     temperature: float = 0.0
-    max_tokens_summary: int = 1024
-    max_tokens_classification: int = 256
 
     @field_validator("provider")
     @classmethod
@@ -726,6 +722,50 @@ class FlowConfig(BaseModel):
 
 
 
+@dataclass
+class ScheduledNode:
+    """One processor node in the execution plan, paired with its graph connectivity.
+
+    The compiler derives ``input_from`` from feedforward edges.
+    The runner uses it to determine when this node is ready and
+    which results to pass as input.
+    """
+
+    node_id: str
+    config: ProcessorConfig
+    input_from: List[str]
+
+
+@dataclass
+class ScheduledOutput:
+    """One output node in the execution plan, paired with its graph connectivity.
+
+    ``input_from`` lists the processor (or data-input) node IDs whose
+    results this output node writes to disk. ``output_fields`` controls
+    which result fields appear in the written file.
+    """
+
+    node_id: str
+    config: OutputConfig
+    input_from: List[str]
+    output_fields: List[str]
+
+
+@dataclass
+class ExecutionPlan:
+    """Graph-aware execution plan computed from feedforward edges.
+
+    Produced by :func:`compile_flow_document_to_runtime` alongside the
+    :class:`FlowConfig`. The runner consumes this to dispatch processors
+    in readiness order and write outputs per-node.
+    """
+
+    data_input_node_id: str
+    processors: List[ScheduledNode]
+    outputs: List[ScheduledOutput]
+    warnings: List[str] = dc_field(default_factory=list)
+
+
 class NodeEntry(BaseModel):
     """One ``flow.nodes[*]`` entry from the new graph YAML.
 
@@ -888,12 +928,19 @@ def _topo_sort_processors(
             if in_degree[next_id] == 0:
                 queue.append(next_id)
 
-    if len(visited_order) < len(node_index):
-        # Some nodes are unreachable through feedforward edges. That's
-        # OK for resource nodes (LLM Call, Codebook) — they sit aside.
-        # We only require every processor to be reachable; the
-        # downstream check below catches missing processors.
-        pass
+    all_processor_ids = {
+        node.id for node in document.nodes if node.type == "processor"
+    }
+    visited_processor_ids = {
+        nid for nid in visited_order if node_index[nid].type == "processor"
+    }
+    missing = all_processor_ids - visited_processor_ids
+    if missing:
+        raise ValueError(
+            f"Cycle detected among processor nodes: {sorted(missing)}. "
+            "These processors form a cycle and cannot be executed in "
+            "any valid order. Remove a feedforward edge to break the cycle."
+        )
 
     return [
         node_id
@@ -960,7 +1007,6 @@ def _build_llm_resource_from_node(node: NodeEntry) -> LLMResource:
     api_key = config.get("api_key")
     api_key_env = config.get("api_key_env")
     temperature = float(config.get("temperature") or 0)
-    max_tokens = int(config.get("max_tokens") or 1024)
 
     return LLMResource(
         id=resource_id,
@@ -973,8 +1019,6 @@ def _build_llm_resource_from_node(node: NodeEntry) -> LLMResource:
         if isinstance(api_key_env, str) and api_key_env
         else None,
         temperature=temperature,
-        max_tokens_summary=max_tokens,
-        max_tokens_classification=max_tokens,
     )
 
 
@@ -1036,11 +1080,11 @@ def _build_processor_config(node: NodeEntry, llm_resource_id: str) -> ProcessorC
             canonical_output = {}
             for field_name, field_spec in raw_output.items():
                 if isinstance(field_spec, str):
-                    canonical_output[field_name] = {"type": field_spec}
+                    canonical_output[field_name] = {"data_type": field_spec}
                 elif isinstance(field_spec, dict):
                     canonical_output[field_name] = field_spec
                 else:
-                    canonical_output[field_name] = {"type": "string"}
+                    canonical_output[field_name] = {"data_type": "string"}
             normalized["output"] = canonical_output
         io_schema_obj = IOSchema.model_validate(normalized)
 
@@ -1078,24 +1122,54 @@ def _build_processor_config(node: NodeEntry, llm_resource_id: str) -> ProcessorC
     )
 
 
-def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
-    """Walk the parsed graph and construct the runtime :class:`FlowConfig`.
+def _build_feedforward_sources(
+    document: FlowDocument,
+    node_index: Dict[str, NodeEntry],
+) -> Dict[str, List[str]]:
+    """Build ``{target_id: [source_ids]}`` from feedforward edges."""
+    sources: Dict[str, List[str]] = {node.id: [] for node in document.nodes}
+    for edge in document.edges:
+        if edge.type != "feedforward":
+            continue
+        if edge.source in node_index and edge.target in node_index:
+            sources[edge.target].append(edge.source)
+    return sources
+
+
+def compile_flow_document_to_runtime(
+    document: FlowDocument,
+) -> Tuple[FlowConfig, ExecutionPlan]:
+    """Walk the parsed graph, construct the runtime :class:`FlowConfig`
+    and the :class:`ExecutionPlan`.
+
+    Returns:
+        Tuple[FlowConfig, ExecutionPlan]: The validated runtime config
+        and the graph-aware execution plan.
 
     Raises:
         ValueError: If the graph is malformed (missing input/output,
-            unresolved llm/codebook references, multiple distinct
-            codebooks, processor without an LLM, etc.).
+            cycles, unresolved llm/codebook references, processor
+            without an LLM, output node without output_fields, etc.).
     """
     node_index = _index_nodes_by_id(document.nodes)
     data_node = _exactly_one(document.nodes, _DATA_INPUT_TYPES, "data input")
-    output_node = _exactly_one(document.nodes, _DATA_OUTPUT_TYPES, "output")
+
+    output_nodes = [n for n in document.nodes if n.type in _DATA_OUTPUT_TYPES]
+    if not output_nodes:
+        raise ValueError(
+            "Flow has no output node "
+            f"(expected one of {sorted(_DATA_OUTPUT_TYPES)})."
+        )
 
     processor_order = _topo_sort_processors(document, node_index)
     if not processor_order:
         raise ValueError("Flow has no processor nodes.")
 
+    feedforward_sources = _build_feedforward_sources(document, node_index)
+
     resources_by_id: Dict[str, LLMResource] = {}
     processors: List[ProcessorConfig] = []
+    processor_configs_by_id: Dict[str, ProcessorConfig] = {}
     taxonomy_path: Optional[str] = None
     taxonomy_selected_keys: Optional[List[str]] = None
     seen_codebook_node_id: Optional[str] = None
@@ -1144,9 +1218,67 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         step = _build_processor_config(processor_node, llm_resource.id)
         step.has_codebook = processor_has_codebook
         processors.append(step)
+        processor_configs_by_id[processor_id] = step
 
     if taxonomy_path is None:
         taxonomy_path = ""
+
+    # --- Build ExecutionPlan from feedforward edges ---
+
+    plan_warnings: List[str] = []
+
+    scheduled_processors: List[ScheduledNode] = []
+    for proc_id in processor_order:
+        input_from = feedforward_sources.get(proc_id, [])
+        if not input_from:
+            plan_warnings.append(
+                f"Processor {proc_id!r} has no feedforward input edge."
+            )
+        scheduled_processors.append(ScheduledNode(
+            node_id=proc_id,
+            config=processor_configs_by_id[proc_id],
+            input_from=input_from,
+        ))
+
+    scheduled_outputs: List[ScheduledOutput] = []
+    for out_node in output_nodes:
+        input_from = feedforward_sources.get(out_node.id, [])
+        if not input_from:
+            plan_warnings.append(
+                f"Output node {out_node.id!r} has no feedforward input edge."
+            )
+        raw_fields = out_node.config.get("output_fields", [])
+        out_fields = [str(f) for f in raw_fields if f] if isinstance(raw_fields, list) else []
+        if not out_fields:
+            raise ValueError(
+                f"Output node {out_node.id!r} has no 'output_fields' configured. "
+                "Every output node must declare at least one output field."
+            )
+        scheduled_outputs.append(ScheduledOutput(
+            node_id=out_node.id,
+            config=_build_output_config_from_node(out_node),
+            input_from=input_from,
+            output_fields=out_fields,
+        ))
+
+    consumed_ids: set[str] = set()
+    for sn in scheduled_processors:
+        consumed_ids.update(sn.input_from)
+    for so in scheduled_outputs:
+        consumed_ids.update(so.input_from)
+    for proc_id in processor_order:
+        if proc_id not in consumed_ids:
+            plan_warnings.append(
+                f"Processor {proc_id!r} output is not consumed by "
+                "any downstream processor or output node."
+            )
+
+    execution_plan = ExecutionPlan(
+        data_input_node_id=data_node.id,
+        processors=scheduled_processors,
+        outputs=scheduled_outputs,
+        warnings=plan_warnings,
+    )
 
     flow_config = FlowConfig(
         schema_version=1,
@@ -1160,11 +1292,11 @@ def compile_flow_document_to_runtime(document: FlowDocument) -> FlowConfig:
         steps=processors,
         processing_limit=document.settings.processing_limit,
         async_config=document.settings.async_config,
-        output=_build_output_config_from_node(output_node),
+        output=scheduled_outputs[0].config,
         logging=document.settings.logging,
         display=document.settings.display,
     )
-    return flow_config
+    return flow_config, execution_plan
 
 
 class FlowSchema(BaseModel):
@@ -1175,17 +1307,17 @@ class FlowSchema(BaseModel):
             settings) read from the YAML.
         flow (FlowConfig): The runtime form compiled from
             :attr:`document`. :mod:`src.flow_builder` reads this.
-
-    Methods:
-        load_from_path: Read a YAML file from disk, parse it as a
-            :class:`FlowDocument`, compile it into the runtime
-            :class:`FlowConfig`, and return the validated schema.
+        execution_plan (Optional[ExecutionPlan]): Graph-aware execution
+            plan. Built by :meth:`load_from_path` and
+            :meth:`from_document`. The runner uses this to dispatch
+            processors in readiness order.
     """
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
     document: FlowDocument
     flow: FlowConfig
+    execution_plan: Optional[ExecutionPlan] = None
 
     @classmethod
     def load_from_path(cls, flow_yaml_path: Path) -> "FlowSchema":
@@ -1214,11 +1346,11 @@ class FlowSchema(BaseModel):
 
         flow_block: Dict[str, Any] = raw_document.get("flow") or raw_document
         document = FlowDocument.model_validate(flow_block)
-        flow_config = compile_flow_document_to_runtime(document)
-        return cls(document=document, flow=flow_config)
+        flow_config, plan = compile_flow_document_to_runtime(document)
+        return cls(document=document, flow=flow_config, execution_plan=plan)
 
     @classmethod
     def from_document(cls, document: FlowDocument) -> "FlowSchema":
         """Build a :class:`FlowSchema` from an in-memory :class:`FlowDocument`."""
-        flow_config = compile_flow_document_to_runtime(document)
-        return cls(document=document, flow=flow_config)
+        flow_config, plan = compile_flow_document_to_runtime(document)
+        return cls(document=document, flow=flow_config, execution_plan=plan)

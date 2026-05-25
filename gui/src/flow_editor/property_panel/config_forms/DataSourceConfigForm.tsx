@@ -134,6 +134,10 @@ export function DataSourceConfigForm({
       <div className="flex flex-col gap-2">
         <span className="font-medium">{section_label}</span>
 
+        {columns_query.isLoading && selected_path && (
+          <span className="text-muted-foreground">Loading data...</span>
+        )}
+
         {input_columns.map((col_name, index) => (
           <div key={index} className="flex items-end gap-1">
             <label className="flex flex-1 flex-col gap-0.5">
@@ -143,6 +147,7 @@ export function DataSourceConfigForm({
               <select
                 className="rounded-md border bg-background px-2 py-1 text-sm"
                 value={col_name}
+                disabled={columns_query.isLoading}
                 onChange={(e) => on_column_value_change(index, e.target.value)}
               >
                 <option value="">{placeholder}</option>

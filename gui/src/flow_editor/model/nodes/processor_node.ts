@@ -91,7 +91,7 @@ export class ProcessorNode extends BaseNode {
           : {};
       const output_block: Record<string, Record<string, unknown>> = {};
       for (const [key, value] of Object.entries(raw_output)) {
-        if (value && typeof value === "object" && "type" in (value as Record<string, unknown>)) {
+        if (value && typeof value === "object" && "data_type" in (value as Record<string, unknown>)) {
           output_block[key] = { ...(value as Record<string, unknown>) };
         } else if (typeof value === "string") {
           output_block[key] = { type: value };

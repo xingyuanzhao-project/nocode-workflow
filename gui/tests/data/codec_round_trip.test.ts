@@ -56,8 +56,6 @@ function canonicalise(flow_body: FlowBody): Record<string, unknown> {
       api_base: resource.api_base ?? null,
       api_key_env: resource.api_key_env ?? null,
       temperature: resource.temperature,
-      max_tokens_summary: resource.max_tokens_summary,
-      max_tokens_classification: resource.max_tokens_classification,
     })),
     data: parsed.data,
     taxonomy: parsed.taxonomy,

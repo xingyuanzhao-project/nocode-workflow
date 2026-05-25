@@ -106,13 +106,15 @@ _LOCAL_PROVIDER_NAMES = frozenset({
 
 
 def _get_local_endpoint_url(provider_name: str) -> str:
-    """Return the configured base URL for a local provider.
+    """Return the reachable base URL for a local provider.
 
-    Reads from ``os.environ`` (persisted to ``.env`` by the Settings
-    page).  Raises :class:`ValueError` when no URL is configured so
-    callers get a clear error instead of a silent wrong-port request.
+    Reads the user-entered localhost URL from ``os.environ`` (persisted
+    to ``.env`` by the Settings page), then derives the reachable
+    IP-address URL via :func:`src.localhost_resolver.resolve_localhost_url`.
+    Raises :class:`ValueError` when no URL is configured.
     """
     from server.routes.settings import LOCAL_ENDPOINT_ENV_VARS
+    from src.localhost_resolver import resolve_localhost_url
 
     env_var = LOCAL_ENDPOINT_ENV_VARS[provider_name]
     env_value = os.environ.get(env_var, "").strip()
@@ -122,7 +124,7 @@ def _get_local_endpoint_url(provider_name: str) -> str:
             f"{provider_name!r}. Set it in the API Keys page or add "
             f"{env_var!r} to the project-root .env file."
         )
-    return env_value.rstrip("/")
+    return resolve_localhost_url(env_value.rstrip("/"))
 
 
 class ModelListProxy:
@@ -332,6 +334,9 @@ def _normalise_models(
         model_id = str(raw_entry.get("id", "")).strip()
         if not model_id:
             continue
+        prompt_price_per_million: float | None = None
+        completion_price_per_million: float | None = None
+
         if provider is ProviderName.OPENROUTER:
             display_label = str(raw_entry.get("name", model_id)).strip() or model_id
             description_value: object = raw_entry.get("description")
@@ -346,6 +351,28 @@ def _normalise_models(
                 if isinstance(raw_context_length, (int, float))
                 else None
             )
+            top_provider = raw_entry.get("top_provider")
+            raw_max_out = (
+                top_provider.get("max_completion_tokens")
+                if isinstance(top_provider, dict)
+                else None
+            )
+            max_output_tokens_int = (
+                int(raw_max_out)
+                if isinstance(raw_max_out, (int, float)) and raw_max_out > 0
+                else None
+            )
+            raw_pricing = raw_entry.get("pricing")
+            if isinstance(raw_pricing, dict):
+                try:
+                    prompt_val = raw_pricing.get("prompt")
+                    if prompt_val is not None:
+                        prompt_price_per_million = float(prompt_val) * 1_000_000
+                    completion_val = raw_pricing.get("completion")
+                    if completion_val is not None:
+                        completion_price_per_million = float(completion_val) * 1_000_000
+                except (ValueError, TypeError):
+                    pass
         elif provider is ProviderName.CLAUDE:
             display_label = str(raw_entry.get("display_name", model_id)).strip() or model_id
             description_text = None
@@ -355,16 +382,26 @@ def _normalise_models(
                 if isinstance(raw_context_length, (int, float))
                 else None
             )
+            raw_max_out_claude = raw_entry.get("max_tokens")
+            max_output_tokens_int = (
+                int(raw_max_out_claude)
+                if isinstance(raw_max_out_claude, (int, float)) and raw_max_out_claude > 0
+                else None
+            )
         else:
             display_label = model_id
             description_text = None
             context_length_int = None
+            max_output_tokens_int = None
         normalised.append(
             ProviderModel(
                 id=model_id,
                 label=display_label,
                 description=description_text,
                 context_length=context_length_int,
+                max_output_tokens=max_output_tokens_int,
+                prompt_price_per_million=prompt_price_per_million,
+                completion_price_per_million=completion_price_per_million,
             )
         )
     normalised.sort(key=lambda entry: entry.id)
@@ -402,12 +439,19 @@ def _normalise_google_models(response_body: Dict[str, Any]) -> List[ProviderMode
             if isinstance(raw_context_length, (int, float))
             else None
         )
+        raw_output_limit = raw_entry.get("outputTokenLimit")
+        max_output_tokens_int = (
+            int(raw_output_limit)
+            if isinstance(raw_output_limit, (int, float)) and raw_output_limit > 0
+            else None
+        )
         normalised.append(
             ProviderModel(
                 id=model_id,
                 label=display_label,
                 description=description_text,
                 context_length=context_length_int,
+                max_output_tokens=max_output_tokens_int,
             )
         )
     normalised.sort(key=lambda entry: entry.id)

@@ -167,10 +167,14 @@ export type FlowList = z.infer<typeof flowListSchema>;
 // ---------- Cost estimate (mirrors server/schemas/flow.py) ------------
 
 export const costEstimateResponseSchema = z.object({
+  model: z.string(),
+  provider: z.string(),
+  is_local: z.boolean(),
+  model_price_per_million_tokens: z.number(),
+  api_calls: z.number(),
+  max_tokens_per_call: z.number(),
   estimated_tokens: z.number(),
   estimated_cost_usd: z.number(),
-  model: z.string(),
-  step_count: z.number(),
   message: z.string(),
 });
 export type CostEstimateResponse = z.infer<typeof costEstimateResponseSchema>;

@@ -92,10 +92,10 @@ def _minimal_registry() -> NodeTypeRegistry:
                 requires_resources=["llm_provider"],
                 default_prompt_ref="summary",
                 default_io_schema={
-                    "input": {"input_text": {"type": "string"}},
+                    "input": {"input_text": {"data_type": "string"}},
                     "output": {
-                        "info_found": {"type": "string"},
-                        "summary": {"type": "string"},
+                        "info_found": {"data_type": "string"},
+                        "summary": {"data_type": "string"},
                     },
                 },
             ),
@@ -106,8 +106,8 @@ def _minimal_registry() -> NodeTypeRegistry:
                 requires_resources=["llm_provider"],
                 default_prompt_ref="label_summary_first",
                 default_io_schema={
-                    "input": {"input_text": {"type": "string"}},
-                    "output": {"summary": {"type": "string"}},
+                    "input": {"input_text": {"data_type": "string"}},
+                    "output": {"summary": {"data_type": "string"}},
                 },
             ),
         ]
@@ -153,14 +153,14 @@ class TestStepLevelResolution:
         )
         resolved_io_schema: IOSchema = config["io_schema_resolved"]
         assert resolved_io_schema.output == {
-            "info_found": {"type": "string"},
-            "summary": {"type": "string"},
+            "info_found": {"data_type": "string"},
+            "summary": {"data_type": "string"},
         }
         resolved_prompt: ResolvedPrompt = config["prompt_resolved"]
         assert resolved_prompt.instructions == ["base instruction"]
 
     def test_step_io_schema_override_wins_over_registry_default(self) -> None:
-        override = IOSchema(output={"custom": {"type": "string"}})
+        override = IOSchema(output={"custom": {"data_type": "string"}})
         step = ProcessorConfig.model_construct(type="single_summary", unit="row", io_schema=override)
         config = _build_processor_runtime_config(
             resource=_default_llm_resource(),
@@ -169,7 +169,7 @@ class TestStepLevelResolution:
             step=step,
             registry=_minimal_registry(),
         )
-        assert config["io_schema_resolved"].output == {"custom": {"type": "string"}}
+        assert config["io_schema_resolved"].output == {"custom": {"data_type": "string"}}
 
     def test_step_prompt_overrides_append_to_registry_default(self) -> None:
         step = ProcessorConfig.model_construct(
