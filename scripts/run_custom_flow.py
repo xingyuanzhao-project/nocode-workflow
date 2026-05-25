@@ -15,7 +15,7 @@ file:
 
 1. **Workflow** -- the ``processors:`` block, which selects processor
    types registered in :mod:`src.node_registry` via
-   ``config/node_types.yaml``, implemented by :mod:`src.processors`.
+   ``workflows/node_types.yaml``, implemented by :mod:`src.processors`.
 2. **Settings** -- everything else in the same file: LLM provider,
    model, ``api_base``, ``api_key_env``, temperature, token budgets,
    input CSV, column roles, prompts/taxonomy paths, concurrency limits,

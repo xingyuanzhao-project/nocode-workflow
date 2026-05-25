@@ -1,6 +1,6 @@
-﻿flow:
-  name: test_v2_run_2
-  description: "V2 test: CSV classification with input_columns and output_fields"
+flow:
+  name: test_generic_processor
+  description: "Verify the new generic processor works end-to-end"
 
   nodes:
     - id: input_1
@@ -8,10 +8,7 @@
       config:
         selected_file: data/df_text_by_report.csv
         input_columns:
-          - role: text
-            column: text
-          - role: entity_id
-            column: victim
+          - text
 
     - id: proc_1
       type: processor
@@ -19,16 +16,13 @@
         unit: row
         prompt:
           instructions:
-            - "Classify the following text into one of these categories: violence, economic, political, social, other."
-            - "Return only the category name in the {summary_label} field."
-            - "Set {info_found_label} to TRUE if the text contains meaningful content, FALSE if it is an error page or empty."
+            - "You are a text analyst."
+            - "Read the text and produce a one-sentence summary and a sentiment label (positive, negative, or neutral)."
         io_schema:
           output:
-            info_found:
-              type: string
-            relevant_context:
-              type: array
             summary:
+              type: string
+            sentiment:
               type: string
 
     - id: llm_1
@@ -36,17 +30,19 @@
       config:
         resource_id: default
         provider: openrouter
-        model: google/gemini-2.0-flash-001
+        model: meta-llama/llama-3.1-70b-instruct
         api_base: https://openrouter.ai/api/v1
         api_key_env: OPENROUTER_API_KEY
-        temperature: 0
+        temperature: 0.0
+        max_tokens: 1024
 
     - id: output_1
       type: csv_output
       config:
-        output_path: results_custom/test_v2_run_2/output.csv
+        output_path: results_custom/test_generic/output.csv
         output_fields:
-          - category
+          - summary
+          - sentiment
         extend: false
 
   edges:
@@ -61,15 +57,15 @@
       target: llm_1
 
   settings:
-    processing_limit: 2
     async:
       enabled: true
-      max_concurrent_rows: 2
-      max_concurrent_llm_calls: 2
+      max_concurrent_rows: 5
+      max_concurrent_llm_calls: 5
       max_retries: 3
+    processing_limit: 3
     logging:
-      file: results_custom/test_v2_run_2/processing.log
+      file: results_custom/test_generic/processing.log
       log_progress: true
     display:
-      use_progress_bar: false
+      use_progress_bar: true
     prompts: config/prompts.json

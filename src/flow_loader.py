@@ -58,7 +58,7 @@ Contents and relationships
   data file.
 - :class:`ProcessorConfig` — one processor in the pipeline. ``type``
   selects the runtime behaviour; the set of accepted values is sourced
-  from the :mod:`src.node_registry` registry (``config/node_types.yaml``)
+  from the :mod:`src.node_registry` registry (``workflows/node_types.yaml``)
   rather than from a hardcoded list.
 - :class:`AsyncConfig`, :class:`OutputConfig`, :class:`LoggingConfig`, and
   :class:`DisplayConfig` — the remaining runtime sections that control
@@ -363,7 +363,7 @@ class ProcessorConfig(BaseModel):
 
     ``type`` selects the runtime behaviour. Accepted values are the ids
     whose category is ``processor`` in :mod:`src.node_registry`'s
-    default registry (``config/node_types.yaml``). The registry also
+    default registry (``workflows/node_types.yaml``). The registry also
     supplies each processor's default I/O schema and default prompt
     reference; users override those per processor through the optional
     :attr:`io_schema`, :attr:`prompt`, :attr:`prompts_ref`, and
@@ -426,7 +426,7 @@ class ProcessorConfig(BaseModel):
             raise ValueError(
                 f"processor type must be one of {sorted(registered)}; "
                 f"got {value!r}. Registered processor types come from "
-                "config/node_types.yaml via src/node_registry.py."
+                "workflows/node_types.yaml via src/node_registry.py."
             )
         return value
 

@@ -1,16 +1,41 @@
 ---
 title: Academic Pipeline
-description: Visual flow editor for LLM-powered text processing on structured data.
+description: LLM-powered text processing for structured research data.
 template: splash
 hero:
-  tagline: Build and run LLM processing flows on structured text data through a visual editor. Upload CSVs, define processing steps with codebooks and prompts, run against any OpenAI-compatible model, and export results.
+  tagline: A visual workflow editor for processing structured text data with large language models. Built for researchers who need to classify, summarise, or extract information from tabular datasets at scale.
   actions:
-    - text: Get Started
-      link: /academic-pipeline/getting-started/installation/
-      icon: right-arrow
-      variant: primary
-    - text: View on GitHub
-      link: https://github.com/xingyuanzhao-project/academic-pipeline
+    - text: Open App
+      link: https://academic-pipeline-gui.onrender.com
       icon: external
+      variant: primary
+    - text: Quick Start
+      link: /academic-pipeline/quick-start/
+      icon: right-arrow
       variant: minimal
 ---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What it does
+
+<CardGrid>
+  <Card title="Upload your data" icon="document">
+    Import a CSV or JSONL file with one text record per row — news articles, survey responses, case reports.
+  </Card>
+  <Card title="Build a processing flow" icon="setting">
+    Drag nodes onto a visual canvas. Chain processing steps: summarise, classify, extract labels. Each step gets its own prompt and output schema.
+  </Card>
+  <Card title="Attach a codebook" icon="list-format">
+    Define classification categories and label options. The codebook is injected into the LLM prompt automatically — no prompt engineering required.
+  </Card>
+  <Card title="Run and export" icon="rocket">
+    Process rows concurrently against any OpenAI-compatible model. Resume interrupted runs from the last checkpoint. Export results as CSV.
+  </Card>
+</CardGrid>
+
+## Designed for
+
+- **Political science** — coding legislative texts, media reports, human rights documentation.
+- **Computational social science** — structured content analysis on large corpora.
+- **Any domain** where tabular text data needs systematic LLM processing with reproducible codebooks.

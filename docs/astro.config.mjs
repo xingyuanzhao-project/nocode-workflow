@@ -8,39 +8,19 @@ export default defineConfig({
     starlight({
       title: "Academic Pipeline",
       description:
-        "Visual flow editor for LLM-powered text processing on structured data.",
+        "LLM-powered text processing for structured research data.",
       social: [
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/xingyuanzhao-project/academic-pipeline",
+          href: "https://github.com/xingyuanzhao-project/academic-pipeline-public",
         },
       ],
       customCss: ["./src/styles/custom.css"],
       sidebar: [
         { label: "Overview", slug: "" },
-        {
-          label: "Getting Started",
-          items: [
-            { label: "Installation", slug: "getting-started/installation" },
-            { label: "Quick Start", slug: "getting-started/quick-start" },
-          ],
-        },
-        {
-          label: "Architecture",
-          items: [
-            { label: "System Design", slug: "architecture/system-design" },
-            { label: "Flow Engine", slug: "architecture/flow-engine" },
-            { label: "Node Types", slug: "architecture/node-types" },
-          ],
-        },
-        {
-          label: "Reference",
-          items: [
-            { label: "Configuration", slug: "reference/configuration" },
-            { label: "Citation", slug: "reference/citation" },
-          ],
-        },
+        { label: "Quick Start", slug: "quick-start" },
+        { label: "Citation", slug: "citation" },
       ],
     }),
   ],

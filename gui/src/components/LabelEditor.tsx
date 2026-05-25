@@ -31,10 +31,12 @@ export interface LabelEntry {
   data_type: DataType;
   /** Valid classification values (comma-separated at display time). */
   options: string[];
-  /** Lower and upper bound for numeric/integer types. */
-  range: string;
-  /** Step size for numeric/integer types. */
-  interval: string;
+  /** Lower bound for numeric/integer types. */
+  range_start: string;
+  /** Upper bound for numeric/integer types. */
+  range_end: string;
+  /** Step size for integer types. */
+  step: string;
   /** Detailed extraction guidance. */
   context_definition: string;
   /** Preserved per-label fields we do not otherwise touch. */
@@ -45,8 +47,9 @@ const KNOWN_FIELDS = new Set([
   "definition",
   "data_type",
   "options",
-  "range",
-  "interval",
+  "range_start",
+  "range_end",
+  "step",
   "context_definition",
 ]);
 
@@ -68,8 +71,9 @@ export function labelEntriesFromJson(
         definition: "",
         data_type: "string" as DataType,
         options: [],
-        range: "",
-        interval: "",
+        range_start: "",
+        range_end: "",
+        step: "",
         context_definition: "",
         passthrough: {},
       };
@@ -91,8 +95,9 @@ export function labelEntriesFromJson(
       definition: String(record.definition ?? ""),
       data_type: parseDataType(record.data_type),
       options: options_list,
-      range: String(record.range ?? ""),
-      interval: String(record.interval ?? ""),
+      range_start: String(record.range_start ?? ""),
+      range_end: String(record.range_end ?? ""),
+      step: String(record.step ?? ""),
       context_definition: String(record.context_definition ?? ""),
       passthrough,
     };
@@ -114,8 +119,9 @@ export function labelEntriesToJson(
       context_definition: entry.context_definition,
     };
     if (entry.data_type === "numeric" || entry.data_type === "integer") {
-      body.range = entry.range;
-      body.interval = entry.interval;
+      if (entry.range_start) body.range_start = entry.range_start;
+      if (entry.range_end) body.range_end = entry.range_end;
+      if (entry.step) body.step = entry.step;
     } else {
       body.options = entry.options;
     }
@@ -159,8 +165,9 @@ export function LabelEditor({
         definition: "",
         data_type: "string" as DataType,
         options: [],
-        range: "",
-        interval: "",
+        range_start: "",
+        range_end: "",
+        step: "",
         context_definition: "",
         passthrough: {},
       },
@@ -216,34 +223,76 @@ export function LabelEditor({
                   ))}
                 </select>
               </label>
-              {(entry.data_type === "numeric" || entry.data_type === "integer") ? (
+              {entry.data_type === "numeric" && (
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex flex-col gap-0.5 text-xs">
-                    <span className="font-medium">Range</span>
+                    <span className="font-medium">Range start</span>
                     <input
                       className="rounded-md border bg-background px-2 py-1 text-sm"
-                      placeholder="e.g. 0–100"
-                      value={entry.range}
+                      placeholder="e.g. 0"
+                      value={entry.range_start}
                       onChange={(event) =>
-                        update_entry(entry_index, { range: event.target.value })
+                        update_entry(entry_index, { range_start: event.target.value })
                       }
                     />
                   </label>
                   <label className="flex flex-col gap-0.5 text-xs">
-                    <span className="font-medium">Interval</span>
+                    <span className="font-medium">Range end</span>
                     <input
                       className="rounded-md border bg-background px-2 py-1 text-sm"
-                      placeholder="e.g. 1"
-                      value={entry.interval}
+                      placeholder="e.g. 100"
+                      value={entry.range_end}
                       onChange={(event) =>
                         update_entry(entry_index, {
-                          interval: event.target.value,
+                          range_end: event.target.value,
                         })
                       }
                     />
                   </label>
                 </div>
-              ) : (
+              )}
+              {entry.data_type === "integer" && (
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="flex flex-col gap-0.5 text-xs">
+                    <span className="font-medium">Range start</span>
+                    <input
+                      className="rounded-md border bg-background px-2 py-1 text-sm"
+                      placeholder="e.g. 0"
+                      value={entry.range_start}
+                      onChange={(event) =>
+                        update_entry(entry_index, { range_start: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-xs">
+                    <span className="font-medium">Range end</span>
+                    <input
+                      className="rounded-md border bg-background px-2 py-1 text-sm"
+                      placeholder="e.g. 100"
+                      value={entry.range_end}
+                      onChange={(event) =>
+                        update_entry(entry_index, {
+                          range_end: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-xs">
+                    <span className="font-medium">Step</span>
+                    <input
+                      className="rounded-md border bg-background px-2 py-1 text-sm"
+                      placeholder="e.g. 1"
+                      value={entry.step}
+                      onChange={(event) =>
+                        update_entry(entry_index, {
+                          step: event.target.value,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+              {entry.data_type !== "numeric" && entry.data_type !== "integer" && (
                 <label className="flex flex-col gap-0.5 text-xs">
                   <span className="font-medium">
                     {entry.data_type === "category"

@@ -1,7 +1,7 @@
 """Read-only repository exposing ``config/prompts.json`` over HTTP.
 
 The prompts file is checked into the repository alongside
-``config/node_types.yaml`` and the flow templates. This service reads
+``workflows/node_types.yaml`` and the flow templates. This service reads
 the file once per request and returns a typed DTO so the GUI can
 populate its Prompt tab without re-parsing the raw JSON in the
 browser.

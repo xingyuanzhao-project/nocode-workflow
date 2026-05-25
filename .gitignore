@@ -6,6 +6,7 @@
 # Runtime directories (server/codebooks/, server/workflows/, server/data/) are
 # intentionally NOT gitignored — agents and git can see them. .dockerignore
 # keeps them out of the production image.
+# When adding files to gitignore, must un ignore them in .cursorignore
 
 references/
 
@@ -28,6 +29,8 @@ server/runs/
 # Astro build output
 docs/node_modules/
 docs/dist/
+docs/.astro/
 
 # Large data files (over GitHub 100 MB limit)
 data/ncsl_bills.jsonl
+server/data/*.jsonl

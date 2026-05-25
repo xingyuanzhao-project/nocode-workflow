@@ -1,0 +1,76 @@
+flow:
+  name: Untitled flow
+  description: ''
+  nodes:
+  - id: csv_input_2ctbw12
+    type: csv_input
+    position:
+      x: -69.37221365246202
+      y: 281.05801541570776
+    config:
+      selected_file: server/data/uploads/df_text_by_report.csv
+      input_columns:
+      - text
+  - id: processor_gniij5n
+    type: processor
+    position:
+      x: 194.6054432417477
+      y: 287.1921529073335
+    config:
+      unit: row
+      io_schema:
+        output:
+          Summary:
+            type: string
+        required_output:
+        - Summary
+      prompt:
+        instructions:
+        - Summarize the given text
+        output_format: null
+  - id: llm_call_elaws7b
+    type: llm_call
+    position:
+      x: 196.90283995174178
+      y: 79.27775065287014
+    config:
+      resource_id: default
+      provider: openrouter
+      model: google/gemini-2.5-flash
+      temperature: 0
+      max_tokens: 1024
+      api_key_env: OPENROUTER_API_KEY
+  - id: csv_output_jcalqh7
+    type: csv_output
+    position:
+      x: 493.2670155409769
+      y: 278.00256606735724
+    config:
+      output_path: results/output.csv
+      extend: false
+      output_fields:
+      - summary
+  edges:
+  - type: feedforward
+    source: csv_input_2ctbw12
+    target: processor_gniij5n
+  - type: llm_call
+    source: processor_gniij5n
+    target: llm_call_elaws7b
+  - type: feedforward
+    source: processor_gniij5n
+    target: csv_output_jcalqh7
+  settings:
+    processing_limit: 5
+    async:
+      enabled: true
+      max_concurrent_rows: 15
+      max_concurrent_llm_calls: 50
+      max_retries: 5
+    logging:
+      file: processing.log
+      log_progress: true
+      log_prompts: false
+      log_response: false
+    display:
+      use_progress_bar: false

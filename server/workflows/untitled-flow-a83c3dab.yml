@@ -1,0 +1,84 @@
+flow:
+  name: Untitled flow 2
+  description: ''
+  nodes:
+  - id: json_input_m0et0y0
+    type: json_input
+    position:
+      x: 82.4535941103498
+      y: 246.14234658414915
+    config:
+      selected_file: data/ncsl_bills.jsonl
+      input_columns:
+      - html
+  - id: processor_gyjun36
+    type: processor
+    position:
+      x: 381.4582632004744
+      y: 241.19958385874895
+    config:
+      unit: row
+      io_schema:
+        output:
+          Strength:
+            data_type: numeric
+            range_start: '-1'
+            range_end: '1'
+          Count of Entity:
+            data_type: integer
+            range_start: '0'
+            step: '1'
+        required_output:
+        - Strength
+        - Count of Entity
+      prompt:
+        instructions:
+        - 'How many entities being regulated in the Bill? What is the overall strength
+          of the regulation? Negative for dergulation. '
+        output_format: null
+  - id: llm_call_ieaqzeu
+    type: llm_call
+    position:
+      x: 383.7556599104685
+      y: 39.02867337927077
+    config:
+      resource_id: default
+      provider: vllm
+      model: hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4
+      temperature: 0
+      max_tokens: 1024
+  - id: csv_output_rx0yx91
+    type: csv_output
+    position:
+      x: 647.8513738649172
+      y: 237.54367340401865
+    config:
+      output_path: results/output.csv
+      extend: false
+      output_fields:
+      - Strength
+      - Count of Entity
+  edges:
+  - type: feedforward
+    source: json_input_m0et0y0
+    target: processor_gyjun36
+  - type: llm_call
+    source: processor_gyjun36
+    target: llm_call_ieaqzeu
+  - type: feedforward
+    source: processor_gyjun36
+    target: csv_output_rx0yx91
+  settings:
+    processing_limit: 5
+    async:
+      enabled: true
+      max_concurrent_rows: 15
+      max_concurrent_llm_calls: 50
+      max_retries: 5
+    logging:
+      file: processing.log
+      log_progress: true
+      log_prompts: false
+      log_response: false
+    display:
+      use_progress_bar: false

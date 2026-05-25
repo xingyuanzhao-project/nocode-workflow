@@ -3,7 +3,7 @@
  *
  * The catalog is used by the palette, the property panel, and the
  * unit-aware edge validator. It is near-static (changes only when
- * ``config/node_types.yaml`` changes on the backend), so the query
+ * ``workflows/node_types.yaml`` changes on the backend), so the query
  * uses a long stale time so components share one cached copy.
  */
 

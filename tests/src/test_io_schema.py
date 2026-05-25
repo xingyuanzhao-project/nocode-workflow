@@ -5,7 +5,7 @@ round-trips against the hardcoded response formats in
 :mod:`src.processors`; those are executed here via ``--doctest-modules``
 on demand. The tests below add two things the doctests do not cover:
 
-1. Every ``default_io_schema`` in ``config/node_types.yaml`` round-trips
+1. Every ``default_io_schema`` in ``workflows/node_types.yaml`` round-trips
    through :func:`to_response_format` and :func:`to_prompt_output_format_text`
    without raising. This catches registry entries that silently drift
    away from the shape :class:`IOSchema` expects.
