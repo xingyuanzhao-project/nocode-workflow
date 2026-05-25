@@ -154,9 +154,7 @@ def _resolve_resource_credentials(resource: LLMResource) -> LLMResource:
                 f"no endpoint URL configured. Set it in the API Keys page "
                 f"or add {env_var_name!r} to the project-root .env file."
             )
-        from src.localhost_resolver import resolve_localhost_url
-
-        resolved_api_base = resolve_localhost_url(env_base)
+        resolved_api_base = env_base
     else:
         resolved_api_base = CLOUD_PROVIDER_API_BASE[resource.provider]
 

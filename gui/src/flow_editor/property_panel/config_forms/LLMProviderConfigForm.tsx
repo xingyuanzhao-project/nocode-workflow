@@ -13,6 +13,7 @@ import { z } from "zod";
 import { useQuery } from "@tanstack/react-query";
 
 import { getProviderModels } from "@/api/models";
+import { getProviderStatus } from "@/api/settings";
 import { useAutoSaveNodeData } from "../node_update_helpers";
 import type { GraphNode } from "@/stores/graph_store";
 import {
@@ -99,6 +100,19 @@ export function LLMProviderConfigForm({
     enabled: Boolean(current_provider),
   });
 
+  const status_query = useQuery({
+    queryKey: ["provider-status"],
+    queryFn: getProviderStatus,
+    staleTime: 30_000,
+    enabled: LOCAL_PROVIDERS.has(current_provider),
+  });
+
+  const local_endpoint_url = LOCAL_PROVIDERS.has(current_provider)
+    ? status_query.data?.local_endpoints.find(
+        (ep) => ep.provider === current_provider,
+      )?.api_base || ""
+    : "";
+
   return (
     <form className="flex flex-col gap-3">
       <label className="flex flex-col gap-1 text-xs">
@@ -148,18 +162,33 @@ export function LLMProviderConfigForm({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="font-medium">API key env var</span>
-        <input
-          className="rounded-md border bg-muted px-2 py-1 text-sm text-muted-foreground"
-          readOnly
-          disabled
-          value={form.watch("api_key_env") ?? (LOCAL_PROVIDERS.has(current_provider) ? "(not required)" : "")}
-        />
-        <span className="text-muted-foreground">
-          Derived from provider. Configure the key in the API Keys page.
-        </span>
-      </label>
+      {LOCAL_PROVIDERS.has(current_provider) ? (
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">Reachable URL</span>
+          <input
+            className="rounded-md border bg-muted px-2 py-1 text-sm font-mono text-muted-foreground"
+            readOnly
+            disabled
+            value={local_endpoint_url || "(not configured)"}
+          />
+          <span className="text-muted-foreground">
+            Derived at save time. Configure in the API Keys page.
+          </span>
+        </label>
+      ) : (
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium">API key env var</span>
+          <input
+            className="rounded-md border bg-muted px-2 py-1 text-sm text-muted-foreground"
+            readOnly
+            disabled
+            value={form.watch("api_key_env") ?? ""}
+          />
+          <span className="text-muted-foreground">
+            Derived from provider. Configure the key in the API Keys page.
+          </span>
+        </label>
+      )}
 
       <label className="flex flex-col gap-1 text-xs">
         <span className="font-medium">Temperature</span>

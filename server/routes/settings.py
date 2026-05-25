@@ -236,7 +236,12 @@ async def test_api_key(request: ApiKeyTestRequest) -> ApiKeyTestResponse:
 def set_local_endpoint(
     request: LocalEndpointSetRequest,
 ) -> ProviderStatusResponse:
-    """Store a local endpoint URL in ``os.environ`` and persist to ``.env``.
+    """Resolve and persist a local endpoint URL.
+
+    The user-entered localhost URL is resolved to a reachable
+    IP-address URL via :func:`_resolve_local_url` before persisting.
+    This is the single point of derivation — runtime consumers read
+    the persisted value directly without re-deriving.
 
     Args:
         request (LocalEndpointSetRequest): Provider and base URL.
@@ -245,7 +250,7 @@ def set_local_endpoint(
         ProviderStatusResponse: Updated status list.
     """
     env_var = LOCAL_ENDPOINT_ENV_VARS[request.provider]
-    value = request.api_base.rstrip("/")
+    value = _resolve_local_url(request.api_base.rstrip("/"))
     os.environ[env_var] = value
     _persist_env_var_to_dotenv(env_var, value)
     return list_providers()

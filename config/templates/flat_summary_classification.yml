@@ -57,7 +57,7 @@ flow:
         api_base: https://openrouter.ai/api/v1
         api_key_env: OPENROUTER_API_KEY
         temperature: 0.0
-        max_output_tokens: 1024
+        max_tokens: 1024
 
     - id: codebook_1
       type: codebook

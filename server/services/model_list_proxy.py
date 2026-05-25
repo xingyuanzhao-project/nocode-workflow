@@ -106,15 +106,14 @@ _LOCAL_PROVIDER_NAMES = frozenset({
 
 
 def _get_local_endpoint_url(provider_name: str) -> str:
-    """Return the reachable base URL for a local provider.
+    """Return the persisted reachable base URL for a local provider.
 
-    Reads the user-entered localhost URL from ``os.environ`` (persisted
-    to ``.env`` by the Settings page), then derives the reachable
-    IP-address URL via :func:`src.localhost_resolver.resolve_localhost_url`.
+    Reads from ``os.environ`` (persisted to ``.env`` by the Settings
+    page).  The value is already the validated IP-address URL — it was
+    resolved at save time by :func:`server.routes.settings.set_local_endpoint`.
     Raises :class:`ValueError` when no URL is configured.
     """
     from server.routes.settings import LOCAL_ENDPOINT_ENV_VARS
-    from src.localhost_resolver import resolve_localhost_url
 
     env_var = LOCAL_ENDPOINT_ENV_VARS[provider_name]
     env_value = os.environ.get(env_var, "").strip()
@@ -124,7 +123,7 @@ def _get_local_endpoint_url(provider_name: str) -> str:
             f"{provider_name!r}. Set it in the API Keys page or add "
             f"{env_var!r} to the project-root .env file."
         )
-    return resolve_localhost_url(env_value.rstrip("/"))
+    return env_value.rstrip("/")
 
 
 class ModelListProxy:
