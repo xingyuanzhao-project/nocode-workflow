@@ -13,9 +13,6 @@
 #
 # Free-tier deployment. The web service uses an ephemeral filesystem
 # (no persistent disk). Files are lost on spin-down or redeploy.
-# NOT YET DEPLOYED. This file is committed so the deploy step is a
-# single `render deploy` away; do not run deploy without first
-# re-verifying the values of `sync: false` env vars in Render's UI.
 
 services:
   - type: web
@@ -27,22 +24,15 @@ services:
     dockerCommand: supervisord -c /app/server/supervisord.conf
     healthCheckPath: /api/health
     envVars:
-      # OpenRouter credentials used by the flow_builder's .env loader.
-      # Marked `sync: false` so the key is set once in Render's dashboard
-      # and never checked in.
       - key: OPENROUTER_API_KEY
         sync: false
-      # Shared Redis URL. Render injects the managed instance's
-      # connection string automatically.
       - key: ACADEMIC_PIPELINE_REDIS_URL
         fromService:
           name: academic-pipeline-redis
           type: redis
           property: connectionString
-      # CORS allowlist: the GUI origin. Set in the Render UI so the
-      # deploy script never overrides it.
       - key: ACADEMIC_PIPELINE_CORS_ORIGINS
-        sync: false
+        value: '["https://academic-pipeline-gui.onrender.com"]'
 
   - type: redis
     name: academic-pipeline-redis
@@ -58,12 +48,8 @@ services:
     staticPublishPath: gui/dist
     pullRequestPreviewsEnabled: false
     envVars:
-      # Base URL of the backend. Set to the academic-pipeline-api
-      # Render URL in the dashboard (for example
-      # https://academic-pipeline-api.onrender.com). Empty in local
-      # previews so the built GUI uses path-relative /api URLs.
       - key: VITE_API_BASE_URL
-        sync: false
+        value: https://academic-pipeline-api.onrender.com
     routes:
       - type: rewrite
         source: /*
