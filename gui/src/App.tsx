@@ -14,6 +14,7 @@ import { RouterProvider } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { router } from "@/routing";
+import { buildApiUrl } from "@/api/client";
 
 /* ------------------------------------------------------------------ */
 /*  Query client                                                       */
@@ -92,7 +93,7 @@ function StartupScreen({ onReady }: { onReady: () => void }): JSX.Element {
     async function poll(): Promise<void> {
       while (!cancelled) {
         try {
-          const res = await fetch("/api/health");
+          const res = await fetch(buildApiUrl("/api/health"));
           if (!res.ok) {
             setChecks({ backend: "fail", redis: "pending", worker: "pending" });
             setError(`Backend returned HTTP ${res.status}`);
