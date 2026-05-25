@@ -1,6 +1,6 @@
 """Registry of node types consumed by the config-driven flow runner.
 
-The registry lives on disk as ``workflows/node_types.yaml``. Each entry declares
+The registry lives on disk as ``config/node_types.yaml``. Each entry declares
 one node type (a data source, a processor, or a resource) together with
 the defaults that other modules need: which unit of analysis the node
 operates on, what it consumes and produces, whether it needs an LLM client,
@@ -16,7 +16,7 @@ Contents and relationships
   model. Exposes :meth:`NodeTypeRegistry.get_entry` and
   :meth:`NodeTypeRegistry.processor_types` helpers used by callers.
 - :data:`DEFAULT_REGISTRY_PATH` — the canonical path
-  ``workflows/node_types.yaml`` relative to the project root.
+  ``config/node_types.yaml`` relative to the project root.
 
 How the rest of the system uses this module
 -------------------------------------------
@@ -66,7 +66,7 @@ represent LLM-backed processors dispatched by :class:`src.flow_builder.FlowRunne
 
 
 DEFAULT_REGISTRY_PATH: Path = (
-    Path(__file__).resolve().parent.parent / "workflows" / "node_types.yaml"
+    Path(__file__).resolve().parent.parent / "config" / "node_types.yaml"
 )
 """Canonical on-disk location of the registry YAML relative to project root."""
 

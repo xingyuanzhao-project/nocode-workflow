@@ -21,7 +21,6 @@ RUN pip install --upgrade pip && \
 COPY src /app/src
 COPY server /app/server
 COPY config /app/config
-COPY workflows /app/workflows
 
 ENV PYTHONPATH=/app
 
