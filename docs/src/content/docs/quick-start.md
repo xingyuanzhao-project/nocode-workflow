@@ -12,7 +12,7 @@ The top bar has five sections:
 - **Flows** — list of saved flows. Open, duplicate, or delete. Create a new blank flow from here.
 - **Runs** — list of past and active runs with status badges.
 - **Data** — upload and manage input files. Download output files.
-- **Codebook** — create and manage codebooks (taxonomies for classification).
+- **Codebook** — create and manage codebooks to provide context for LLMs.
 - **API Keys** — configure LLM provider credentials and local server endpoints.
 
 ---
@@ -41,7 +41,7 @@ The list page shows all saved codebooks with name, last updated timestamp, and a
 The editor has:
 
 - **Name field** — editable codebook title.
-- **Label editor** — add, remove, and edit label entries. Each entry is a key-value pair where the key is the label name and the value is the definition or list of options.
+- **Label editor** — add, remove, and edit label entries. Each entry has a variable name, definition, data type (`String`, `Binary`, `Category`, `Numeric`, `Integer`), and a context field. Category entries accept a comma-separated list of allowed options. Numeric and integer entries accept range bounds and step size.
 - **Import JSON** — load a codebook from a `.json` file.
 - **Export JSON** — download the current codebook as `.json`.
 - **Save** — persist to the server.
@@ -106,7 +106,7 @@ Drag nodes from the palette onto the canvas. Three categories:
 
 **Data** — CSV Input, JSON Input, CSV Output, JSON Output.
 
-**Processor** — Processor.
+**Processor** — Processor, the main component to carry out operations.
 
 **Resources** — LLM Call, Codebook.
 
@@ -135,7 +135,7 @@ The card shows the selected filename, or "No file selected."
 
 ### JSON Input
 
-Same as CSV Input but for `.json` and `.jsonl` files. Column selectors are labelled "Input Fields" and "Field Name" instead.
+For `.json` and `.jsonl` files. The first layer of fields is treated as columns and is selectable. Field selectors are labelled "Input Fields" and "Field Name."
 
 ### Processor
 
@@ -145,7 +145,7 @@ The card shows the processing unit (`row`) and the output field names from the s
 
 **Property panel has three tabs:**
 
-**Config tab** — shows the processing unit (read-only, always `row`).
+**Config tab** — shows the processing unit (read-only, always `row`; may support other units of analysis in the future).
 
 **Output Schema tab** — define the fields the LLM returns per row. Each field has:
 
@@ -154,7 +154,7 @@ The card shows the processing unit (`row`) and the output field names from the s
 | Field name | The output field name |
 | Required | Checkbox |
 | Type | `String`, `Binary`, `Category`, `Numeric`, or `Integer` |
-| Options | Comma-separated list of allowed values (Category type only) |
+| Options | Comma-separated list of allowed values (shown for Category; disabled for String and Binary) |
 | Range start / Range end | Bounds (Numeric and Integer types) |
 | Step | Increment (Integer type only) |
 
@@ -177,7 +177,7 @@ The card shows the resource id, provider, model, temperature, and max_tokens.
 | Model | Combobox loaded from the provider's model catalogue. Type a custom model id if needed. |
 | API key env var | Read-only, derived from the provider (e.g. `OPENROUTER_API_KEY`). Configure the key in the API Keys page. |
 | Reachable URL | Read-only, shown for local providers only. Configure in the API Keys page. |
-| Temperature | 0 to 2 |
+| Temperature | Default 0 for better reproducibility |
 
 ### Codebook
 
@@ -225,12 +225,12 @@ Nodes connect through three edge types. The canvas validates connections and rej
 A typical flow:
 
 ```
-[Input] → [Processor] → [Processor] → [Output]
-               ↑    ↓         ↑    ↓
-          [LLM Call] [Codebook] [LLM Call] [Codebook]
+[Input] → [Processor] → [Output]
+               ↑
+          [LLM Call]
 ```
 
-Processors can be chained. Each processor in the chain can have its own LLM Call and Codebook.
+Processors can be chained in sequence. Each processor in the chain can have its own LLM Call and Codebook.
 
 ---
 
