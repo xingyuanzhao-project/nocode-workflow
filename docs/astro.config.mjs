@@ -19,7 +19,7 @@ export default defineConfig({
       customCss: ["./src/styles/custom.css"],
       sidebar: [
         { label: "Overview", slug: "" },
-        { label: "Quick Start", slug: "quick-start" },
+        { label: "How it works", slug: "quick-start" },
         { label: "Citation", slug: "citation" },
       ],
     }),

@@ -1,15 +1,15 @@
 ---
 title: Academic Pipeline
-description: LLM-powered text processing for structured research data.
+description: A no-code application for LLM-powered structured text processing.
 template: splash
 hero:
-  tagline: A visual workflow editor for processing structured text data with large language models. Built for researchers who need to classify, summarise, or extract information from tabular datasets at scale.
+  tagline: A no-code application for processing structured text data with large language models. Upload a file, build a flow on a canvas by drag and drop, and run against any OpenAI-compatible model. Output supports CSV and JSON.
   actions:
     - text: Open App
       link: https://academic-pipeline-gui.onrender.com
       icon: external
       variant: primary
-    - text: Quick Start
+    - text: How it works
       link: /academic-pipeline/quick-start/
       icon: right-arrow
       variant: minimal
@@ -21,21 +21,19 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 <CardGrid>
   <Card title="Upload your data" icon="document">
-    Import a CSV or JSONL file with one text record per row — news articles, survey responses, case reports.
+    Import a CSV or JSONL file with one text record per row. News articles, survey responses, case reports, or any tabular text data.
   </Card>
   <Card title="Build a processing flow" icon="setting">
-    Drag nodes onto a visual canvas. Chain processing steps: summarise, classify, extract labels. Each step gets its own prompt and output schema.
+    Drag nodes onto a visual canvas. Chain processing steps: summarise, classify, extract labels, and others! Each step gets its own prompt and output schema.
   </Card>
   <Card title="Attach a codebook" icon="list-format">
-    Define classification categories and label options. The codebook is injected into the LLM prompt automatically — no prompt engineering required.
+    Define categories and label options. The codebook is injected into the LLM prompt automatically to provide context and guide the LLM.
   </Card>
-  <Card title="Run and export" icon="rocket">
-    Process rows concurrently against any OpenAI-compatible model. Resume interrupted runs from the last checkpoint. Export results as CSV.
+  <Card title="Run and download" icon="rocket">
+    Process rows concurrently against any OpenAI-compatible model. Results are downloadable as CSV or JSON.
   </Card>
 </CardGrid>
 
 ## Designed for
 
-- **Political science** — coding legislative texts, media reports, human rights documentation.
-- **Computational social science** — structured content analysis on large corpora.
-- **Any domain** where tabular text data needs systematic LLM processing with reproducible codebooks.
+Built for social science researchers who need systematic, reproducible LLM coding on large text corpora without writing code. It works for any practitioner with structured text data who wants model-agnostic processing without engineering overhead.
