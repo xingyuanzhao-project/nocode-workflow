@@ -36,7 +36,6 @@ export function TaxonomyNode({
     <NodeCard
       category="Resource"
       title={data.label}
-      type_id={data.node_type_id}
       selected={selected}
       has_input_handle={true}
       input_handle_position={Position.Top}

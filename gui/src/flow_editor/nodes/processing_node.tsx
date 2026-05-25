@@ -36,7 +36,6 @@ export function ProcessingNode({
     <NodeCard
       category=""
       title={data.label}
-      type_id={data.node_type_id}
       selected={selected}
       has_top_handle={true}
       has_bottom_handle={true}

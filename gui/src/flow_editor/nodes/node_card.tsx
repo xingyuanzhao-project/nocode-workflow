@@ -16,8 +16,6 @@ export interface NodeCardProps {
   category: string;
   /** Title line. Usually the node-type ``label``. */
   title: string;
-  /** ``node_type_id`` rendered under the title. */
-  type_id: string;
   /** Domain-specific summary rendered as the card body. */
   children?: ReactNode;
   /** React Flow selection flag. */
@@ -49,7 +47,6 @@ export interface NodeCardProps {
 export function NodeCard({
   category,
   title,
-  type_id: _type_id,
   children,
   selected = false,
   has_input_handle = true,

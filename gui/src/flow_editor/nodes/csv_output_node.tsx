@@ -25,7 +25,6 @@ export function CSVOutputNode({
     <NodeCard
       category="Output"
       title={data.label}
-      type_id={data.node_type_id}
       selected={selected}
       has_output_handle={false}
     >

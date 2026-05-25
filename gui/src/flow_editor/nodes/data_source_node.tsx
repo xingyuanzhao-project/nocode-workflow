@@ -29,7 +29,6 @@ export function DataSourceNode({
       <NodeCard
         category="Data"
         title={data.label}
-        type_id={data.node_type_id}
         selected={selected}
         has_input_handle={false}
       >
@@ -60,7 +59,6 @@ export function DataSourceNode({
     <NodeCard
       category="Data"
       title={data.label}
-      type_id={data.node_type_id}
       selected={selected}
       has_input_handle={false}
     >

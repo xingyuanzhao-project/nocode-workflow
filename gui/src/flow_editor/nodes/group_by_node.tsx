@@ -34,7 +34,6 @@ export function GroupByNode({
     <NodeCard
       category="Group By"
       title={data.label}
-      type_id={data.node_type_id}
       selected={selected}
     >
       <div className="flex flex-col gap-0.5">

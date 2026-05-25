@@ -28,7 +28,6 @@ export function PromptsNode({
     <NodeCard
       category="Resource"
       title={data.label}
-      type_id={data.node_type_id}
       selected={selected}
       has_input_handle={false}
     >
