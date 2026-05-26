@@ -1,5 +1,5 @@
 {
-  "name": "academic-pipeline-docs",
+  "name": "nocode-workflow-docs",
   "private": true,
   "scripts": {
     "dev": "astro dev",

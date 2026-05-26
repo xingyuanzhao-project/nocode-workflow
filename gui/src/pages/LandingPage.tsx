@@ -41,7 +41,7 @@ export default function LandingPage(): JSX.Element {
           Open Flow Editor
         </NavLink>
         <a
-          href="https://xingyuanzhao-project.github.io/academic-pipeline/"
+          href="https://xingyuanzhao-project.github.io/nocode-workflow/"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
@@ -151,7 +151,7 @@ export default function LandingPage(): JSX.Element {
         </a>
         {" · "}
         <a
-          href="https://xingyuanzhao-project.github.io/academic-pipeline/"
+          href="https://xingyuanzhao-project.github.io/nocode-workflow/"
           target="_blank"
           rel="noopener noreferrer"
           className="underline hover:text-foreground"

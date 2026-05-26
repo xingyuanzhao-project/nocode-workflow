@@ -3,7 +3,7 @@ import starlight from "@astrojs/starlight";
 
 export default defineConfig({
   site: "https://xingyuanzhao-project.github.io",
-  base: "/academic-pipeline",
+  base: "/nocode-workflow",
   integrations: [
     starlight({
       title: "Academic Pipeline",
