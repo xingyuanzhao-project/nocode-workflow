@@ -1,0 +1,87 @@
+flow:
+  name: demo_artifacts
+  description: "Extract arguments to CSV and reasoning trace spans to JSON"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/demo_articles.csv
+        input_columns:
+          - text
+
+    - id: proc_extract
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Analyse the article and extract the core argument presented."
+            - "Provide: the claim, the evidence cited, and the stakeholder making the argument."
+            - "Also provide a trace_spans field: a comma-separated list of key phrases from the text that support the argument."
+        io_schema:
+          output:
+            claim:
+              type: string
+            evidence:
+              type: string
+            stakeholder:
+              type: string
+            trace_spans:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: openrouter/free
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0.0
+        max_tokens: 1024
+
+    - id: output_csv
+      type: csv_output
+      config:
+        output_path: results_custom/demo_artifacts/arguments.csv
+        output_fields:
+          - claim
+          - evidence
+          - stakeholder
+        extend: false
+
+    - id: output_json
+      type: json_output
+      config:
+        output_path: results_custom/demo_artifacts/trace_spans.json
+        output_fields:
+          - trace_spans
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_extract
+    - type: feedforward
+      source: proc_extract
+      target: output_csv
+    - type: feedforward
+      source: proc_extract
+      target: output_json
+    - type: llm_call
+      source: proc_extract
+      target: llm_1
+
+  settings:
+    processing_limit: 3
+    async:
+      enabled: true
+      max_concurrent_rows: 5
+      max_concurrent_llm_calls: 5
+      max_retries: 3
+    logging:
+      file: results_custom/demo_artifacts/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: true

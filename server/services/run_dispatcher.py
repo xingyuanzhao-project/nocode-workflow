@@ -161,6 +161,7 @@ def _rewrite_output_paths(
 
     nodes_list = rewritten.get("nodes")
     if isinstance(nodes_list, list):
+        output_index = 0
         for node in nodes_list:
             if not isinstance(node, dict):
                 continue
@@ -170,7 +171,10 @@ def _rewrite_output_paths(
             if not isinstance(node_config, dict):
                 node_config = {}
                 node["config"] = node_config
-            node_config["output_path"] = f"{run_dir}/summary.csv"
+            ext = "json" if node.get("type") == "json_output" else "csv"
+            suffix = f"_{output_index}" if output_index > 0 else ""
+            node_config["output_path"] = f"{run_dir}/summary{suffix}.{ext}"
+            output_index += 1
 
     settings_block = rewritten.setdefault("settings", {})
     if not isinstance(settings_block, dict):

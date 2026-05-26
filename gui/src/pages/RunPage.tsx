@@ -144,23 +144,57 @@ export default function RunPage(): JSX.Element {
           </div>
         </div>
         <div className="flex w-1/2 flex-col gap-3 overflow-hidden">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold">Output</h2>
-            <a href={run_id ? outputDownloadUrl(run_id) : "#"}>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!is_terminal || status_query.data?.status !== "succeeded"}
-              >
-                Download output
-              </Button>
-            </a>
-          </div>
-          <ResultsPreviewTable
-            preview={preview_query.data ?? null}
-            is_loading={preview_query.isFetching}
-            error={normalisePreviewError(preview_query.error)}
-          />
+          {(preview_query.data?.outputs?.length ?? 0) > 1 ? (
+            preview_query.data!.outputs.map((artifact, idx) => (
+              <div key={artifact.filename} className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">
+                    Output {idx + 1}: {artifact.filename}
+                  </h2>
+                  <a href={run_id ? outputDownloadUrl(run_id, artifact.filename) : "#"}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!is_terminal || status_query.data?.status !== "succeeded"}
+                    >
+                      Download
+                    </Button>
+                  </a>
+                </div>
+                <ResultsPreviewTable
+                  preview={{
+                    run_id: run_id!,
+                    columns: artifact.columns,
+                    preview_rows: artifact.preview_rows,
+                    total_row_count: artifact.total_row_count,
+                    outputs: [],
+                  }}
+                  is_loading={false}
+                  error={null}
+                />
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold">Output</h2>
+                <a href={run_id ? outputDownloadUrl(run_id) : "#"}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!is_terminal || status_query.data?.status !== "succeeded"}
+                  >
+                    Download output
+                  </Button>
+                </a>
+              </div>
+              <ResultsPreviewTable
+                preview={preview_query.data ?? null}
+                is_loading={preview_query.isFetching}
+                error={normalisePreviewError(preview_query.error)}
+              />
+            </>
+          )}
         </div>
       </section>
     </div>

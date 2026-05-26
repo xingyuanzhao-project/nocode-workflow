@@ -37,18 +37,30 @@ from typing import Any, Dict, List
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class OutputArtifact(BaseModel):
+    """One output file produced by a run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str
+    format: str = "csv"
+    columns: List[str] = Field(default_factory=list)
+    preview_rows: List[Dict[str, Any]] = Field(default_factory=list)
+    total_row_count: int = 0
+
+
 class ResultsPreviewResponse(BaseModel):
     """Response of ``GET /api/flow/runs/{run_id}/preview``.
 
     Attributes:
         run_id (str): The queried run identifier.
-        columns (List[str]): Column headers in the CSV, in column order.
+        columns (List[str]): Column headers in the primary CSV output.
         preview_rows (List[Dict[str, Any]]): First ``limit`` rows of the
-            CSV, each represented as ``{column_name: cell_value}``. Cell
-            values are coerced to JSON-safe primitives.
-        total_row_count (int): Total number of rows in the CSV on disk,
-            independent of ``limit``. The GUI uses this to display
-            "showing 20 of 1,234" style captions.
+            primary CSV, each represented as ``{column_name: cell_value}``.
+        total_row_count (int): Total number of rows in the primary CSV.
+        outputs (List[OutputArtifact]): All output artifacts produced by
+            the run. The first entry is the primary output (same data as
+            the top-level columns/preview_rows/total_row_count fields).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -57,3 +69,4 @@ class ResultsPreviewResponse(BaseModel):
     columns: List[str] = Field(default_factory=list)
     preview_rows: List[Dict[str, Any]] = Field(default_factory=list)
     total_row_count: int = 0
+    outputs: List[OutputArtifact] = Field(default_factory=list)

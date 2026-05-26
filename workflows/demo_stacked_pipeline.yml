@@ -1,0 +1,130 @@
+flow:
+  name: demo_stacked_pipeline
+  description: "Three-stage pipeline: classify topic, score relevance, validate consistency"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/demo_articles.csv
+        input_columns:
+          - text
+
+    - id: proc_classify
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Read the article and assign a topic category."
+            - "Choose one of: policy, science, economy, technology, health, education."
+        io_schema:
+          output:
+            topic:
+              type: string
+
+    - id: proc_score
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Given the article and its assigned topic, rate how relevant and newsworthy the article is on a scale of 1 to 5."
+            - "1 = trivial local note, 5 = major national impact."
+            - "Provide a one-sentence justification."
+        io_schema:
+          output:
+            topic:
+              type: string
+            relevance_score:
+              type: string
+            justification:
+              type: string
+
+    - id: proc_validate
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Review the assigned topic, relevance score, and justification for this article."
+            - "Output 'consistent' if the topic matches the article content and the score is reasonable."
+            - "Output 'inconsistent' with a brief explanation if something is wrong."
+            - "Pass through the topic, relevance_score, and justification fields unchanged."
+        io_schema:
+          output:
+            topic:
+              type: string
+            relevance_score:
+              type: string
+            justification:
+              type: string
+            validation:
+              type: string
+            explanation:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: openrouter/free
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0.0
+        max_tokens: 512
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/demo_stacked_pipeline/output.csv
+        output_fields:
+          - topic
+          - relevance_score
+          - justification
+          - validation
+          - explanation
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_classify
+    - type: feedforward
+      source: input_1
+      target: proc_score
+    - type: feedforward
+      source: input_1
+      target: proc_validate
+    - type: feedforward
+      source: proc_classify
+      target: proc_score
+    - type: feedforward
+      source: proc_score
+      target: proc_validate
+    - type: feedforward
+      source: proc_validate
+      target: output_1
+    - type: llm_call
+      source: proc_classify
+      target: llm_1
+    - type: llm_call
+      source: proc_score
+      target: llm_1
+    - type: llm_call
+      source: proc_validate
+      target: llm_1
+
+  settings:
+    processing_limit: 3
+    async:
+      enabled: true
+      max_concurrent_rows: 5
+      max_concurrent_llm_calls: 5
+      max_retries: 3
+    logging:
+      file: results_custom/demo_stacked_pipeline/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: true

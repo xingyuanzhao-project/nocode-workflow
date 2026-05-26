@@ -92,25 +92,28 @@ def preview_run_output(
 @router.get("/runs/{run_id}/output")
 def download_run_output(
     run_id: str,
+    filename: str = Query(default="summary.csv", description="Output filename to download."),
     service: ResultsPreviewService = Depends(get_results_preview_service),
 ) -> FileResponse:
-    """Stream a run's output CSV as a downloadable file.
+    """Stream a run's output file as a downloadable file.
 
     Args:
         run_id (str): The run identifier.
+        filename (str): Which output file to download. Defaults to
+            ``summary.csv``.
         service (ResultsPreviewService): Injected service used only for
             its path-resolution method.
 
     Returns:
-        FileResponse: 200 response with ``text/csv`` body and a
-        ``Content-Disposition: attachment`` header naming the file
-        ``<run_id>_summary.csv``. Missing files surface as 404
-        via :mod:`server.errors`.
+        FileResponse: 200 response with the file body and a
+        ``Content-Disposition: attachment`` header. Missing files
+        surface as 404 via :mod:`server.errors`.
     """
-    output_path = service.resolve_output_path(run_id)
-    download_filename = f"{run_id}_summary.csv"
+    output_path = service.resolve_output_path(run_id, filename=filename)
+    media_type = "application/json" if output_path.suffix == ".json" else "text/csv"
+    download_name = f"{run_id}_{output_path.name}"
     return FileResponse(
         path=output_path,
-        media_type="text/csv",
-        filename=download_filename,
+        media_type=media_type,
+        filename=download_name,
     )

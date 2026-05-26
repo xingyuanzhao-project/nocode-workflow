@@ -749,6 +749,7 @@ class ScheduledOutput:
     config: OutputConfig
     input_from: List[str]
     output_fields: List[str]
+    output_format: str = "csv"
 
 
 @dataclass
@@ -1254,11 +1255,13 @@ def compile_flow_document_to_runtime(
                 f"Output node {out_node.id!r} has no 'output_fields' configured. "
                 "Every output node must declare at least one output field."
             )
+        out_format = "json" if out_node.type == "json_output" else "csv"
         scheduled_outputs.append(ScheduledOutput(
             node_id=out_node.id,
             config=_build_output_config_from_node(out_node),
             input_from=input_from,
             output_fields=out_fields,
+            output_format=out_format,
         ))
 
     consumed_ids: set[str] = set()

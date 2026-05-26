@@ -1,0 +1,70 @@
+flow:
+  name: demo_simple_pipeline
+  description: "Summarise and classify 10 short news articles using a free LLM"
+
+  nodes:
+    - id: input_1
+      type: csv_input
+      config:
+        selected_file: data/demo_articles.csv
+        input_columns:
+          - text
+
+    - id: proc_1
+      type: processor
+      config:
+        unit: row
+        prompt:
+          instructions:
+            - "Read the article text and produce a one-sentence summary and a topic label."
+            - "The topic label must be one of: policy, science, economy, technology, health, education."
+        io_schema:
+          output:
+            summary:
+              type: string
+            topic:
+              type: string
+
+    - id: llm_1
+      type: llm_call
+      config:
+        resource_id: default
+        provider: openrouter
+        model: openrouter/free
+        api_base: https://openrouter.ai/api/v1
+        api_key_env: OPENROUTER_API_KEY
+        temperature: 0.0
+        max_tokens: 512
+
+    - id: output_1
+      type: csv_output
+      config:
+        output_path: results_custom/demo_simple_pipeline/output.csv
+        output_fields:
+          - summary
+          - topic
+        extend: false
+
+  edges:
+    - type: feedforward
+      source: input_1
+      target: proc_1
+    - type: feedforward
+      source: proc_1
+      target: output_1
+    - type: llm_call
+      source: proc_1
+      target: llm_1
+
+  settings:
+    processing_limit: 3
+    async:
+      enabled: true
+      max_concurrent_rows: 5
+      max_concurrent_llm_calls: 5
+      max_retries: 3
+    logging:
+      file: results_custom/demo_simple_pipeline/processing.log
+      log_progress: true
+    display:
+      use_progress_bar: true

@@ -881,7 +881,20 @@ class FlowRunner:
                         cleaned_fields, row_index=row_index,
                     )
                 except ParseWarning as pw:
-                    return row_index, None, f"Row {row_index}: unparseable LLM response (first 200 chars: {pw.raw_content_preview})"
+                    if not pw.raw_content_preview.strip():
+                        detail = (
+                            f"Row {row_index}: LLM returned empty response "
+                            f"(model={model_name}). The model server "
+                            f"did not produce output — this is a server-side "
+                            f"issue (rate limit, content filter, or model "
+                            f"capacity). Retry or use a different model."
+                        )
+                    else:
+                        detail = (
+                            f"Row {row_index}: unparseable LLM response "
+                            f"(first 200 chars: {pw.raw_content_preview})"
+                        )
+                    return row_index, None, detail
                 except Exception as exc:
                     return row_index, None, f"Row {row_index}: LLM error — {exc}"
                 return row_index, result, None
@@ -972,24 +985,54 @@ class FlowRunner:
 
         output_df = pd.DataFrame(rows)
 
-        if output_config.extend and summary_path.exists():
-            existing_df = pd.read_csv(summary_path, encoding="utf-8")
-            model_name = source_results[0].model_name if source_results else ""
-            if "model" in existing_df.columns:
-                existing_df = existing_df[existing_df["model"] != model_name]
-            combined_df = pd.concat([existing_df, output_df], ignore_index=True)
-            combined_df.to_csv(summary_path, index=False, encoding="utf-8")
-            self.logger.info(
-                "Output %r extended: %d existing + %d new = %d total rows",
-                scheduled_output.node_id,
-                len(existing_df), len(output_df), len(combined_df),
-            )
+        if scheduled_output.output_format == "json":
+            records = output_df.to_dict(orient="records")
+            if output_config.extend and summary_path.exists():
+                existing_records = json.loads(
+                    summary_path.read_text(encoding="utf-8")
+                )
+                model_name = source_results[0].model_name if source_results else ""
+                existing_records = [
+                    r for r in existing_records if r.get("model") != model_name
+                ]
+                combined = existing_records + records
+                summary_path.write_text(
+                    json.dumps(combined, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                self.logger.info(
+                    "Output %r extended: %d existing + %d new = %d total rows",
+                    scheduled_output.node_id,
+                    len(existing_records), len(records), len(combined),
+                )
+            else:
+                summary_path.write_text(
+                    json.dumps(records, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                self.logger.info(
+                    "Output %r saved to %s (%d rows, JSON)",
+                    scheduled_output.node_id, summary_path, len(records),
+                )
         else:
-            output_df.to_csv(summary_path, index=False, encoding="utf-8")
-            self.logger.info(
-                "Output %r saved to %s (%d rows)",
-                scheduled_output.node_id, summary_path, len(output_df),
-            )
+            if output_config.extend and summary_path.exists():
+                existing_df = pd.read_csv(summary_path, encoding="utf-8")
+                model_name = source_results[0].model_name if source_results else ""
+                if "model" in existing_df.columns:
+                    existing_df = existing_df[existing_df["model"] != model_name]
+                combined_df = pd.concat([existing_df, output_df], ignore_index=True)
+                combined_df.to_csv(summary_path, index=False, encoding="utf-8")
+                self.logger.info(
+                    "Output %r extended: %d existing + %d new = %d total rows",
+                    scheduled_output.node_id,
+                    len(existing_df), len(output_df), len(combined_df),
+                )
+            else:
+                output_df.to_csv(summary_path, index=False, encoding="utf-8")
+                self.logger.info(
+                    "Output %r saved to %s (%d rows)",
+                    scheduled_output.node_id, summary_path, len(output_df),
+                )
 
 
 

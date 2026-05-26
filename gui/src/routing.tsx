@@ -19,6 +19,7 @@ import {
 
 import { NavBar } from "@/components/NavBar";
 
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MyFlowsPage = lazy(() => import("@/pages/MyFlowsPage"));
 const FlowEditorPage = lazy(() => import("@/pages/FlowEditorPage"));
 const RunsListPage = lazy(() => import("@/pages/RunsListPage"));
@@ -56,7 +57,7 @@ const ROUTES: RouteObject[] = [
   {
     element: <AppLayout />,
     children: [
-      { index: true, element: <Navigate to="/flows" replace /> },
+      { index: true, element: <LandingPage /> },
       { path: "flows", element: <MyFlowsPage /> },
       { path: "flows/new", element: <FlowEditorPage mode="new" /> },
       { path: "flows/:flow_id/edit", element: <FlowEditorPage mode="edit" /> },

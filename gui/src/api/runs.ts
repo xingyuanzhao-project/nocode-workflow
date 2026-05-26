@@ -36,8 +36,11 @@ export function previewRunOutput(
 /**
  * Build the URL for downloading a run's output file.
  */
-export function outputDownloadUrl(runId: string): string {
-  return buildApiUrl(
-    `/api/flow/runs/${encodeURIComponent(runId)}/output`,
-  );
+export function outputDownloadUrl(runId: string, filename?: string): string {
+  const base = `/api/flow/runs/${encodeURIComponent(runId)}/output`;
+  if (filename) {
+    const params = new URLSearchParams({ filename });
+    return buildApiUrl(`${base}?${params.toString()}`);
+  }
+  return buildApiUrl(base);
 }

@@ -1,0 +1,15 @@
+{
+  "topic": {
+    "definition": "Primary subject area of the news article",
+    "data_type": "category",
+    "options": ["Policy & Governance", "Science & Research", "Economy & Markets", "Technology & Industry", "Health & Medicine", "Education"],
+    "context_definition": "Choose the single category that best describes the article's main subject."
+  },
+  "impact_scope": {
+    "definition": "Geographic scope of the event described",
+    "data_type": "category",
+    "options": ["Local", "State", "National", "Global"],
+    "context_definition": "Judge by where the event's effects are felt, not where the article was published."
+  },
+  "_name": "News Topics"
+}
