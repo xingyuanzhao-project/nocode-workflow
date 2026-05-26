@@ -33,7 +33,7 @@ services:
           type: redis
           property: connectionString
       - key: ACADEMIC_PIPELINE_CORS_ORIGINS
-        value: '["https://nocode-workflow-gui.onrender.com"]'
+        value: '["https://nocode-workflow-gui.onrender.com","https://nocodeworkflow.app","https://www.nocodeworkflow.app"]'
 
   - type: redis
     name: nocode-workflow-redis
