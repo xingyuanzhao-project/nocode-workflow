@@ -38,23 +38,31 @@ export default function LandingPage(): JSX.Element {
           to="/flows"
           className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
-          Open Flow Editor
+          Open App
         </NavLink>
         <a
-          href="https://xingyuanzhao-project.github.io/nocode-workflow/"
+          href="https://xingyuanzhao-project.github.io/nocode-workflow/quick-start/"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
         >
-          Documentation
+          How it works
         </a>
         <a
-          href="https://github.com/xingyuanzhao-project/academic-pipeline-public"
+          href="https://github.com/xingyuanzhao-project/nocode-workflow-public"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
         >
           GitHub
+        </a>
+        <a
+          href="https://huggingface.co/spaces/xingyuanzhao/nocode-workflow"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
+        >
+          HuggingFace
         </a>
         <button
           onClick={handleCite}
