@@ -10,7 +10,7 @@ const CITATION_BIBTEX = `@software{zhao2026nocodeworkflow,
   author       = {Xingyuan Zhao},
   title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://nocodeworkflow.app}
+  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
 }`;
 
 export default function LandingPage(): JSX.Element {
@@ -141,7 +141,7 @@ export default function LandingPage(): JSX.Element {
   author       = {Xingyuan Zhao},
   title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://nocodeworkflow.app}
+  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
 }`}
         </pre>
       </section>
