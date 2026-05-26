@@ -1,14 +1,14 @@
-# Render Blueprint for the academic_pipeline backend + GUI.
+# Render Blueprint for the nocode_workflow backend + GUI.
 #
 # Three services:
 #
-# - academic-pipeline-api            (web, Docker)     — FastAPI app + Celery
+# - nocode-workflow-api            (web, Docker)     — FastAPI app + Celery
 #                                                        worker via supervisord.
-# - academic-pipeline-redis          (redis)            — broker, result backend,
+# - nocode-workflow-redis          (redis)            — broker, result backend,
 #                                                        app-state DBs (logical
 #                                                        DBs 0/1/2 on one
 #                                                        instance).
-# - academic-pipeline-gui            (static site)      — the Vite/React SPA
+# - nocode-workflow-gui            (static site)      — the Vite/React SPA
 #                                                        built from gui/.
 #
 # Starter-plan deployment. Services stay always-on (no spin-down).
@@ -17,7 +17,7 @@
 
 services:
   - type: web
-    name: academic-pipeline-api
+    name: nocode-workflow-api
     runtime: docker
     region: oregon
     plan: starter
@@ -29,28 +29,28 @@ services:
         sync: false
       - key: ACADEMIC_PIPELINE_REDIS_URL
         fromService:
-          name: academic-pipeline-redis
+          name: nocode-workflow-redis
           type: redis
           property: connectionString
       - key: ACADEMIC_PIPELINE_CORS_ORIGINS
-        value: '["https://academic-pipeline-gui.onrender.com"]'
+        value: '["https://nocode-workflow-gui.onrender.com"]'
 
   - type: redis
-    name: academic-pipeline-redis
+    name: nocode-workflow-redis
     region: oregon
     plan: starter
     maxmemoryPolicy: allkeys-lru
     ipAllowList: []
 
   - type: web
-    name: academic-pipeline-gui
+    name: nocode-workflow-gui
     runtime: static
     buildCommand: cd gui && npm ci && npm run build
     staticPublishPath: gui/dist
     pullRequestPreviewsEnabled: false
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://academic-pipeline-api.onrender.com
+        value: https://nocode-workflow-api.onrender.com
     routes:
       - type: rewrite
         source: /*

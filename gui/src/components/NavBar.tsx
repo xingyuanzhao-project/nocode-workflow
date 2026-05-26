@@ -31,7 +31,7 @@ export function NavBar(): JSX.Element {
   return (
     <header className="flex h-14 items-center border-b bg-background px-6">
       <NavLink to="/" className="text-lg font-semibold tracking-tight">
-        Academic Pipeline
+        No-Code Workflow
       </NavLink>
       <nav className="ml-8 flex gap-1 text-sm">
         {PRIMARY_NAV_ENTRIES.map((entry) => (

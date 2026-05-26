@@ -1,16 +1,16 @@
 /**
  * Landing page that shows the project README content.
- * Rendered when the user clicks the "Academic Pipeline" title in the NavBar.
+ * Rendered when the user clicks the "No-Code Workflow" title in the NavBar.
  */
 
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
-const CITATION_BIBTEX = `@software{zhao2026academicpipeline,
+const CITATION_BIBTEX = `@software{zhao2026nocodeworkflow,
   author       = {Xingyuan Zhao},
-  title        = {Academic Pipeline: A No-Code Application for LLM-Powered Structured Text Processing},
+  title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://github.com/xingyuanzhao-project/academic-pipeline-public}
+  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
 }`;
 
 export default function LandingPage(): JSX.Element {
@@ -26,7 +26,7 @@ export default function LandingPage(): JSX.Element {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="mb-2 text-3xl font-bold tracking-tight">
-        Academic Pipeline
+        No-Code Workflow
       </h1>
       <p className="mb-6 text-lg text-muted-foreground">
         A <strong>visual workflow editor</strong> for LLM-powered structured text
@@ -134,14 +134,14 @@ export default function LandingPage(): JSX.Element {
       <section className="mb-8">
         <h2 className="mb-3 text-xl font-semibold">Citation</h2>
         <p className="mb-3 text-sm text-muted-foreground">
-          If you use Academic Pipeline in your research, please cite:
+          If you use No-Code Workflow in your research, please cite:
         </p>
         <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
-{`@software{zhao2026academicpipeline,
+{`@software{zhao2026nocodeworkflow,
   author       = {Xingyuan Zhao},
-  title        = {Academic Pipeline: A No-Code Application for LLM-Powered Structured Text Processing},
+  title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://github.com/xingyuanzhao-project/academic-pipeline-public}
+  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
 }`}
         </pre>
       </section>
@@ -150,7 +150,7 @@ export default function LandingPage(): JSX.Element {
 
       <footer className="text-xs text-muted-foreground">
         <a
-          href="https://github.com/xingyuanzhao-project/academic-pipeline-public"
+          href="https://github.com/xingyuanzhao-project/nocode-workflow-public"
           target="_blank"
           rel="noopener noreferrer"
           className="underline hover:text-foreground"

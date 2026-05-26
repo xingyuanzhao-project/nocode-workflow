@@ -3,7 +3,7 @@ title: How it works
 description: Every element in the application, explained.
 ---
 
-Open the app at [academic-pipeline-gui.onrender.com](https://academic-pipeline-gui.onrender.com). No installation or account required.
+Open the app at [nocode-workflow-gui.onrender.com](https://nocode-workflow-gui.onrender.com). No installation or account required.
 
 ## Navigation bar
 

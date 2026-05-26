@@ -6,14 +6,14 @@ export default defineConfig({
   base: "/nocode-workflow",
   integrations: [
     starlight({
-      title: "Academic Pipeline",
+      title: "No-Code Workflow",
       description:
         "LLM-powered text processing for structured research data.",
       social: [
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/xingyuanzhao-project/academic-pipeline-public",
+          href: "https://github.com/xingyuanzhao-project/nocode-workflow-public",
         },
       ],
       customCss: ["./src/styles/custom.css"],

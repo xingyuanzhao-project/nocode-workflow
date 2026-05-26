@@ -3,13 +3,13 @@ title: Citation
 description: How to cite this project.
 ---
 
-If you use Academic Pipeline in your research, please cite:
+If you use No-Code Workflow in your research, please cite:
 
 ```bibtex
-@software{zhao2026academicpipeline,
+@software{zhao2026nocodeworkflow,
   author       = {Xingyuan Zhao},
-  title        = {Academic Pipeline: A No-Code Application for LLM-Powered Structured Text Processing},
+  title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://github.com/xingyuanzhao-project/academic-pipeline-public}
+  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
 }
 ```

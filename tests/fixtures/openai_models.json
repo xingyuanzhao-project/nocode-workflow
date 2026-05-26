@@ -1,8 +1,0 @@
-{
-  "object": "list",
-  "data": [
-    {"id": "gpt-4o-mini", "object": "model", "created": 1717000000, "owned_by": "system"},
-    {"id": "gpt-4o", "object": "model", "created": 1717000000, "owned_by": "system"},
-    {"id": "gpt-3.5-turbo", "object": "model", "created": 1700000000, "owned_by": "system"}
-  ]
-}
