@@ -10,7 +10,7 @@ const CITATION_BIBTEX = `@software{zhao2026nocodeworkflow,
   author       = {Xingyuan Zhao},
   title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
+  url          = {https://nocodeworkflow.app}
 }`;
 
 export default function LandingPage(): JSX.Element {
@@ -41,7 +41,7 @@ export default function LandingPage(): JSX.Element {
           Open App
         </NavLink>
         <a
-          href="https://xingyuanzhao-project.github.io/nocode-workflow/quick-start/"
+          href="https://docs.nocodeworkflow.app/quick-start/"
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent"
@@ -141,7 +141,7 @@ export default function LandingPage(): JSX.Element {
   author       = {Xingyuan Zhao},
   title        = {No-Code Workflow: A No-Code Application for LLM-Powered Structured Text Processing},
   year         = {2026},
-  url          = {https://huggingface.co/spaces/xingyuanzhao/nocode-workflow}
+  url          = {https://nocodeworkflow.app}
 }`}
         </pre>
       </section>
@@ -159,7 +159,7 @@ export default function LandingPage(): JSX.Element {
         </a>
         {" · "}
         <a
-          href="https://xingyuanzhao-project.github.io/nocode-workflow/"
+          href="https://docs.nocodeworkflow.app/"
           target="_blank"
           rel="noopener noreferrer"
           className="underline hover:text-foreground"

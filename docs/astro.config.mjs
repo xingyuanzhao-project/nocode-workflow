@@ -2,8 +2,7 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 
 export default defineConfig({
-  site: "https://xingyuanzhao-project.github.io",
-  base: "/nocode-workflow",
+  site: "https://docs.nocodeworkflow.app",
   integrations: [
     starlight({
       title: "No-Code Workflow",
