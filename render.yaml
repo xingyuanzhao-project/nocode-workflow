@@ -11,15 +11,16 @@
 # - academic-pipeline-gui            (static site)      — the Vite/React SPA
 #                                                        built from gui/.
 #
-# Free-tier deployment. The web service uses an ephemeral filesystem
-# (no persistent disk). Files are lost on spin-down or redeploy.
+# Starter-plan deployment. Services stay always-on (no spin-down).
+# The web service uses an ephemeral filesystem (no persistent disk).
+# Files are lost on redeploy.
 
 services:
   - type: web
     name: academic-pipeline-api
     runtime: docker
     region: oregon
-    plan: free
+    plan: starter
     dockerfilePath: server/Dockerfile
     dockerCommand: supervisord -c /app/server/supervisord.conf
     healthCheckPath: /api/health
@@ -37,7 +38,7 @@ services:
   - type: redis
     name: academic-pipeline-redis
     region: oregon
-    plan: free
+    plan: starter
     maxmemoryPolicy: allkeys-lru
     ipAllowList: []
 
