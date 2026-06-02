@@ -1,4 +1,4 @@
-"""Celery application factory for the academic_pipeline worker process.
+"""Celery application factory for the nocode-workflow worker process.
 
 Constructs the single :class:`celery.Celery` instance imported by both
 the web process (which calls :meth:`Celery.send_task`) and the worker

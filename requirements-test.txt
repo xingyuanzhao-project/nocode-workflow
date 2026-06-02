@@ -1,4 +1,4 @@
-# Test-only dependencies for the academic_pipeline backend.
+# Test-only dependencies for the nocode-workflow backend.
 # Install alongside requirements.txt and server/requirements.txt:
 #   .\.venv\Scripts\python -m pip install -r requirements-test.txt
 

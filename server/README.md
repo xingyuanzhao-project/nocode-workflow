@@ -1,4 +1,4 @@
-# server/ — academic_pipeline Phase 2 backend
+# server/ — nocode-workflow backend
 
 FastAPI web process + Celery worker process, sharing Redis (for Celery
 broker/result backend and application run status) and the filesystem
@@ -224,13 +224,13 @@ All tunables read from environment variables prefixed with
 The repository-root `render.yaml` describes the target Render
 Blueprint. Four services are declared:
 
-- `academic-pipeline-api` — Docker web service, runs
+- `nocode-workflow-api` — Docker web service, runs
   `uvicorn server.app:create_app --factory`.
-- `academic-pipeline-celery-worker` — Docker worker service, runs
+- `nocode-workflow-celery-worker` — Docker worker service, runs
   `celery -A server.celery_app worker --pool=solo --concurrency=1`.
-- `academic-pipeline-redis` — managed Redis for broker, result backend,
+- `nocode-workflow-redis` — managed Redis for broker, result backend,
   application state, and the SSE pubsub channel.
-- `academic-pipeline-gui` — static site built from `gui/` (Vite).
+- `nocode-workflow-gui` — static site built from `gui/` (Vite).
 
 `render.yaml` is **committed but not deployed**. Before running
 `render deploy`:
@@ -239,7 +239,7 @@ Blueprint. Four services are declared:
    `VITE_API_BASE_URL` in Render's dashboard (they are marked
    `sync: false` in the blueprint so the deploy script never
    overwrites them).
-2. Confirm the `academic-pipeline-redis` plan is appropriate for the
+2. Confirm the `nocode-workflow-redis` plan is appropriate for the
    workload; the blueprint defaults to the free tier.
 3. The blueprint mounts a 1 GiB persistent disk at
    `/app/server/data`. Uploaded CSVs and run artefacts live there;

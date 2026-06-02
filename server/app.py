@@ -142,7 +142,7 @@ def create_app() -> FastAPI:
     )
 
     application = FastAPI(
-        title="academic_pipeline backend",
+        title="nocode-workflow backend",
         version="0.1.0",
     )
     application.state.settings = settings

@@ -1,7 +1,7 @@
-# academic_pipeline GUI
+# nocode-workflow GUI
 
 React Flow graph editor, flow manager, and run viewer for the
-`academic_pipeline` backend. The GUI speaks only HTTP / SSE to the backend
+`nocode-workflow` backend. The GUI speaks only HTTP / SSE to the backend
 that lives under `server/`; there is no direct filesystem access from
 the browser.
 

@@ -1,5 +1,5 @@
 /**
- * Vite configuration for the academic_pipeline GUI.
+ * Vite configuration for the nocode-workflow GUI.
  *
  * Dev server proxy: requests to /api/** and /openapi.json are forwarded
  * to the backend at http://127.0.0.1:8000 so browser-side URLs stay

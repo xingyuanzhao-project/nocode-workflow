@@ -1,5 +1,5 @@
 /**
- * Vitest configuration for the academic_pipeline GUI.
+ * Vitest configuration for the nocode-workflow GUI.
  *
  * Three independently-runnable test tiers, each under its own
  * directory:

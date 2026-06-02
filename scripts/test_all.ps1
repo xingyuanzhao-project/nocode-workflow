@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Run the full academic_pipeline test matrix in a strict fail-fast pipeline.
+    Run the full nocode-workflow test matrix in a strict fail-fast pipeline.
 
 .DESCRIPTION
     Executes seven stages in a fixed order:
