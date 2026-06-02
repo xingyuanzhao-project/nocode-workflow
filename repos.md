@@ -1,3 +1,15 @@
+---
+note: |
+  When referring to repository names or URLs that are not explicitly known or described, consult this file (`repos.md`)
+  as the single source of truth for all repository references in this project.
+
+# Repository registry for nocode-workflow: all repository roles, locations, and relationships are documented below.
+---
+
+# End Generation Here
+```
+
+
 # Repository Map
 
 ## Three surfaces, one product
